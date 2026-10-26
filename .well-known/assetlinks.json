@@ -1,0 +1,14 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "io.github.jokopriyanto_cmd.twa",
+      "sha256_cert_fingerprints": [
+        "14:3C:AB:26:11:31:F6:8A:75:8C:72:40:DB:3C:1A:22:BE:13:9E:05:B3:8F:6F:D6:26:FB:CE:B0:12:66:AF:50"
+      ]
+    }
+  }
+]
