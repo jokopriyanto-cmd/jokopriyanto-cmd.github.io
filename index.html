@@ -13,77 +13,12 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="VTAG Otoklix">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<style>
-  :root{--blue:#002eb4;--orange:#ff6400;--muted:#6b7488}
-  *{box-sizing:border-box}
-  html,body{margin:0;height:100%;background:#fff;font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;color:#16203a;overflow:hidden}
-  #app{position:fixed;inset:0;padding-top:env(safe-area-inset-top)}
-  iframe{display:block;width:100%;height:100%;border:0;background:#f3f5fb}
-  .screen{position:fixed;inset:0;z-index:10;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;text-align:center;transition:opacity .35s}
-  .screen.hide{opacity:0;pointer-events:none}
-  .screen img.logo{width:min(64vw,260px);height:auto}
-  .screen h1{font-size:18px;margin:18px 0 4px;color:var(--blue)}
-  .screen p{margin:0;color:var(--muted);font-size:14px}
-  .spin{width:34px;height:34px;border-radius:50%;border:4px solid #e3e7f0;border-top-color:var(--orange);animation:sp 0.9s linear infinite;margin:26px auto 0}
-  @keyframes sp{to{transform:rotate(360deg)}}
-  .by{position:absolute;bottom:calc(22px + env(safe-area-inset-bottom));display:flex;gap:8px;align-items:center;color:var(--muted);font-size:12px}
-  .by img{height:20px}
-  .btn{margin-top:18px;background:var(--orange);color:#fff;border:0;border-radius:13px;min-height:48px;padding:0 22px;font-weight:700;font-size:15px}
-  .hidden{display:none!important}
-</style>
+<link rel="stylesheet" href="styles.css?v=2.0.0">
 </head>
-<body>
-<div id="app"></div>
-
-<div class="screen" id="splash">
-  <img class="logo" src="icons/logo-otoklix.png" alt="Otoklix">
-  <h1>Workshop Investigation</h1>
-  <p id="msg">Memuat aplikasi…</p>
-  <div class="spin" id="spin"></div>
-  <button class="btn hidden" id="retry" type="button">Muat ulang</button>
-  <div class="by"><span>Didukung</span><img src="icons/logo-otoacademy.png" alt="Oto Academy"></div>
-</div>
-
-<script>
-/* ====== KONFIGURASI ====== */
-// Link web app Apps Script (deployment "Aplikasi web", akhiran /exec)
-var APP_URL = 'https://script.google.com/macros/s/AKfycbyGcLEZZ2Xm0nYl2gq53Qng-KmOUYSqvCrlwtAfRrxROwIREyGL3JyG9CQPlT_9QBYq1Q/exec';
-// 'iframe'   = tampil di dalam aplikasi (butuh akses deployment "Siapa saja")
-// 'redirect' = buka langsung halaman Apps Script (pakai ini jika wajib login Google Otoklix)
-var MODE = 'iframe';
-/* ========================= */
-
-var splash = document.getElementById('splash'), msg = document.getElementById('msg'),
-    spin = document.getElementById('spin'), retry = document.getElementById('retry');
-
-function showError(text){
-  msg.textContent = text; spin.classList.add('hidden'); retry.classList.remove('hidden'); splash.classList.remove('hide');
-}
-retry.onclick = function(){ location.reload(); };
-
-function start(){
-  if (!navigator.onLine) { showError('Tidak ada koneksi internet. Sambungkan lalu coba lagi.'); return; }
-  if (MODE === 'redirect') { location.replace(APP_URL); return; }
-  var t0 = Date.now(), loaded = false;
-  var f = document.createElement('iframe');
-  f.src = APP_URL;
-  f.title = 'Workshop Investigation';
-  f.setAttribute('allow', 'camera; microphone; fullscreen; clipboard-read; clipboard-write; geolocation');
-  f.setAttribute('allowfullscreen', '');
-  f.onload = function(){
-    loaded = true;
-    setTimeout(function(){ splash.classList.add('hide'); }, Math.max(0, 700 - (Date.now() - t0)));
-  };
-  document.getElementById('app').appendChild(f);
-  setTimeout(function(){ if (!loaded) { msg.textContent = 'Koneksi lambat, masih memuat…'; retry.classList.remove('hidden'); } }, 20000);
-}
-window.addEventListener('offline', function(){ showError('Koneksi terputus. Sambungkan lalu muat ulang.'); });
-window.addEventListener('online', function(){ if (!retry.classList.contains('hidden')) location.reload(); });
-
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', function(){ navigator.serviceWorker.register('sw.js').catch(function(){}); });
-}
-start();
-</script>
+<body class="nonav">
+<div id="root"><div class="boot"><img src="icons/logo-otoklix.png" alt="Otoklix"><div class="spin"></div><div>Memuat aplikasi…</div></div></div>
+<div id="modalHost"></div>
+<div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+<script src="app.js?v=2.0.0"></script>
 </body>
 </html>
