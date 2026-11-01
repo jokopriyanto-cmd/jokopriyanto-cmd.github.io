@@ -4,7 +4,7 @@
 'use strict';
 
 var CONFIG = {
-  VERSION: '2.0.0',
+  VERSION: '2.0.1',
   API_URL: 'https://script.google.com/macros/s/AKfycbyGcLEZZ2Xm0nYl2gq53Qng-KmOUYSqvCrlwtAfRrxROwIREyGL3JyG9CQPlT_9QBYq1Q/exec',
   POLL_MS: 20000,            // cek data baru tiap 20 detik
   CHUNK: 2359296,            // 9 x 256 KB per potongan upload
@@ -677,7 +677,7 @@ function renderHome(m) {
     todo += todoItem('upload', 'bad', d.state === 'error' ? 'Data gagal terkirim' : 'Data sedang dikirim', (d.v && d.v.vin ? d.v.vin + ' · ' : '') + (d.kind === 'after' ? 'Dokumentasi after' : 'Kasus') + ' — ketuk untuk lanjut', 'draft:' + d.id);
   });
   revisiMine().forEach(function (r) { todo += todoItem('undo', 'bad', 'Perlu revisi', r.vin + ' · ' + r.nopol, 'case:' + r.id); });
-  draftMine().forEach(function (r) { todo += todoItem('edit', 'warn', 'Draft belum lengkap', r.vin + ' · lampiran belum terkirim', 'case:' + r.id); });
+  draftMine().forEach(function (r) { todo += todoItem('edit', 'warn', 'Draft belum lengkap', r.vin + ' · ketuk untuk lengkapi file & kirim ke foreman', 'case:' + r.id); });
   afterWaitForMe().forEach(function (r) { todo += todoItem('box', 'blue', 'Upload dokumentasi after', r.vin + ' · ' + r.nopol, 'after:' + r.id); });
   if (canValidate()) pendingForMe().slice(0, 5).forEach(function (r) { todo += todoItem('clock', 'warn', 'Menunggu validasi', r.vin + ' · ' + r.byName, 'case:' + r.id); });
   if (todo) h += '<h2 style="font-size:16px;margin:4px 2px 10px">Perlu tindakan</h2>' + todo;
@@ -1102,6 +1102,8 @@ function renderForm(m) {
   h += '<div class="card"><h2><span class="hic num or">3</span>Lampiran untuk VTAG</h2><div class="small muted" style="margin:-4px 0 10px">Foto dikompres otomatis tanpa buram. File tersimpan di HP sampai terkirim, aman jika koneksi putus.</div>' +
     '<div class="small" id="attc" style="font-weight:700"></div><div class="prog"><i id="attp"></i></div><div id="atts"></div></div>';
   h += '<div id="ferr" class="msg err hidden"></div><div class="sendbar"><button class="btn or block" type="submit" id="fSend">' + ic('send') + (adminEdit ? ' Simpan perubahan' : ' Kirim ke Foreman') + '</button></div>' +
+    (!adminEdit && isTouch() ? '<button type="button" class="btn sec block" id="fLater" style="margin-top:10px">' + ic('upload') + ' Simpan dulu, lanjut upload file dari laptop</button>' +
+      '<div class="small muted" style="margin:6px 4px 0">Untuk SWBOOM, DTC & TBOX log yang ada di laptop: data & foto dikirim sekarang sebagai <b>Draft</b>, lalu buka <b>jokopriyanto-cmd.github.io</b> di laptop → login → lengkapi file → Kirim ke Foreman.</div>' : '') +
     '<button type="button" class="btn sec block" id="fCancel" style="margin-top:10px">Tutup form (draft tetap tersimpan)</button>' +
     (F.editOf ? '' : '<button type="button" class="btn ghost block" id="fDiscard" style="margin-top:4px;color:var(--bad)">Hapus draft ini</button>') + '</form></div>';
   m.innerHTML = h;
@@ -1138,7 +1140,8 @@ function bindFormEvents() {
       Drafts.remove(F).then(function () { S.form = newDraft(F.id, 'case'); renderView(); });
     });
   };
-  $('#frm').onsubmit = submitForm;
+  $('#frm').onsubmit = function (ev) { submitForm(ev, false); };
+  if ($('#fLater')) $('#fLater').onclick = function () { submitForm(null, true); };
 }
 
 function vinHint() {
@@ -1198,12 +1201,11 @@ function drawAtts() {
     else if (ex) status = '<div class="fn ok">' + ic('check', 'xs') + ' Sudah terunggah · ' + esc(ex.name) + '</div>';
     else status = '<div class="fn">' + (a.wajib ? 'Wajib diisi' : 'Opsional') + '</div>';
     var thumb = nf && nf.thumb ? '<img alt="" src="' + nf.thumb + '">' : ic(have ? 'check' : kindIcon(a.kind), 'lg');
-    var pickLbl = a.kind === 'image' ? (have ? 'Ganti' : 'Foto') : a.kind === 'video' ? (have ? 'Ganti' : 'Video') : (have ? 'Ganti' : 'Pilih');
-    var accept = a.kind === 'image' ? 'image/*' : a.kind === 'video' ? 'video/*' : '';
+    var picks = pickButtons(a);
     return head + '<div class="att ' + cls + '" id="att_' + a.key + '"><div class="ai">' + thumb + '</div><div class="t"><b>' + esc(a.label) + ' ' + (a.wajib ? '<span class="tag w">Wajib</span>' : '<span class="tag">Opsional</span>') + '</b>' +
       (a.hint ? '<div class="small muted">' + esc(a.hint) + '</div>' : '') + status + '</div><div class="acts">' +
       (pr ? (pr.cancel ? '<button type="button" class="xbtn" data-skip="' + a.key + '">Lewati kompres</button>' : '') :
-        '<label class="pick">' + ic(kindIcon(a.kind), 'sm') + pickLbl + '<input type="file" data-key="' + a.key + '" accept="' + accept + '"></label>' +
+        picks +
         (nf ? '<button type="button" class="xbtn" data-rm="' + a.key + '">Hapus</button>' : '')) + '</div></div>';
   }).join('') || '<div class="muted small">Tidak ada lampiran untuk jenis kasus ini.</div>';
   $('#attc').textContent = ok + ' dari ' + req + ' lampiran wajib terpenuhi';
@@ -1217,6 +1219,21 @@ function drawAtts() {
     };
   });
   $$('[data-skip]', el).forEach(function (b) { b.onclick = function () { var pr = S.proc[F.id + '|' + b.dataset.skip]; if (pr && pr.cancel) pr.cancel(); }; });
+}
+
+/** Tombol ambil file: Kamera (langsung) + Galeri/File. Di laptop cukup "Pilih file". */
+function isTouch() { return !!(window.matchMedia && window.matchMedia('(pointer:coarse)').matches) || 'ontouchstart' in window; }
+function pickBtn(key, icon, text, accept, capture, primary) {
+  return '<label class="pick ' + (primary ? '' : 'alt') + '">' + ic(icon, 'sm') + text +
+    '<input type="file" data-key="' + key + '" accept="' + accept + '"' + (capture ? ' capture="environment"' : '') + '></label>';
+}
+function pickButtons(a) {
+  var k = a.key;
+  if (!isTouch()) return pickBtn(k, 'upload', 'Pilih file', a.kind === 'image' ? 'image/*' : a.kind === 'video' ? 'video/*' : '', false, true);
+  if (a.kind === 'image') return pickBtn(k, 'camera', 'Kamera', 'image/*', true, true) + pickBtn(k, 'folder', 'Galeri', 'image/*', false, false);
+  if (a.kind === 'video') return pickBtn(k, 'video', 'Rekam', 'video/*', true, true) + pickBtn(k, 'folder', 'Galeri', 'video/*', false, false);
+  if (a.kind === 'any') return pickBtn(k, 'folder', 'File', '', false, true) + pickBtn(k, 'camera', 'Foto layar', 'image/*', true, false);
+  return pickBtn(k, 'folder', 'Pilih file', '', false, true);
 }
 
 function itemByKey(key) { return (S.boot.settings || []).filter(function (i) { return i.key === key; })[0] || { key: key, label: key, kind: 'any' }; }
@@ -1309,8 +1326,9 @@ function markBad(id, msg) {
   if (!n) { n = document.createElement('div'); n.className = 'ferr'; e.parentNode.appendChild(n); }
   n.textContent = msg;
 }
-function submitForm(ev) {
-  ev.preventDefault(); collect();
+function submitForm(ev, partial) {
+  if (ev) ev.preventDefault();
+  collect();
   var F = S.form, v = F.v, er = $('#ferr'), miss = [], firstBad = null;
   $$('.ferr').forEach(function (n) { n.remove(); }); $$('.bad-input').forEach(function (n) { n.classList.remove('bad-input'); }); $$('.att.missing').forEach(function (n) { n.classList.remove('missing'); });
   er.classList.add('hidden');
@@ -1328,21 +1346,21 @@ function submitForm(ev) {
   });
   var sc = fieldCfg('steps');
   if (sc.tampil && sc.wajib && !String(v.steps[0] || '').trim()) { miss.push(sc.label + ' (Step 1)'); var s0 = $('[data-step="0"]'); if (s0) { s0.classList.add('bad-input'); if (!firstBad) firstBad = s0; } }
-  formItems().forEach(function (a) {
+  if (!partial) formItems().forEach(function (a) {
     if (a.wajib && !F.files[a.key] && !(F.existing && F.existing[a.key])) { miss.push(a.label); var el = $('#att_' + a.key); if (el) { el.classList.add('missing'); if (!firstBad) firstBad = el; } }
   });
   if (miss.length) {
-    er.innerHTML = ic('warn') + '<span><b>Belum lengkap (' + miss.length + '):</b> ' + miss.map(esc).join(', ') + '</span>';
+    er.innerHTML = ic('warn') + '<span><b>' + (partial ? 'Isi dulu data ini sebelum disimpan' : 'Belum lengkap') + ' (' + miss.length + '):</b> ' + miss.map(esc).join(', ') + '</span>';
     er.classList.remove('hidden');
     (firstBad || er).scrollIntoView({ behavior: 'smooth', block: 'center' });
     return;
   }
-  startSend(F);
+  startSend(F, partial);
 }
 
-function startSend(F) {
+function startSend(F, partial) {
   var pending = Object.keys(S.proc).some(function (k) { return k.indexOf(F.id + '|') === 0; });
-  F.state = 'sending'; F.err = ''; F.submitted = false;
+  F.state = 'sending'; F.err = ''; F.submitted = false; F.partial = !!partial;
   Drafts.save(F).then(refreshLocalDrafts).then(function () {
     showSendSheet(F.id, pending ? 'Menunggu proses kompres selesai…' : '');
     Sender.start(F.id);
@@ -1457,13 +1475,16 @@ var Sender = {
     }).then(function () {
       prog.phase = 'final'; renderSendUI();
       if (d.kind === 'after') return apiNet(prog, 'finalizeAfter', d.caseId);
+      if (d.partial) return;
       if (d.serverStatus === T.DRAFT || !d.serverStatus) return apiNet(prog, 'finalizeCase', d.caseId);
     }).then(function () {
       prog.phase = 'done'; prog.msg = '';
-      var label = d.kind === 'after' ? 'Dokumentasi after terkirim ✔' : (d.serverStatus === T.DRAFT || !d.serverStatus ? 'Terkirim ✔ Status: Pending Input VTAG (menunggu foreman)' : 'Perubahan tersimpan ✔');
-      toast(label, 5000);
+      var label = d.partial ? 'Tersimpan sebagai Draft ✔ Lanjutkan di laptop: buka jokopriyanto-cmd.github.io → login → buka draft ini → lengkapi file → Kirim.' :
+        d.kind === 'after' ? 'Dokumentasi after terkirim ✔' : (d.serverStatus === T.DRAFT || !d.serverStatus ? 'Terkirim ✔ Status: Pending Input VTAG (menunggu foreman)' : 'Perubahan tersimpan ✔');
+      toast(label, d.partial ? 9000 : 5000);
+      prog.partial = !!d.partial;
       if (S.form && S.form.id === id) S.form = null;
-      if (d.kind === 'case' && (d.serverStatus === T.DRAFT || !d.serverStatus)) {
+      if (d.kind === 'case' && !d.partial && (d.serverStatus === T.DRAFT || !d.serverStatus)) {
         var row = rows().filter(function (r) { return r.id === d.caseId; })[0];
         if (row) row.status = T.PENDING;
       }
@@ -1471,8 +1492,8 @@ var Sender = {
         S.rev = null; syncNow();
         if (S.tab === 'input' && !S.form) { S.tab = 'home'; renderNav(); renderView(); }
         setTimeout(function () {
-          if (sendSheetId === id && $('#sendSheet')) { closeModal(); sendSheetId = null; }
-          if (S.sendProg[id] && S.sendProg[id].phase === 'done') { delete S.sendProg[id]; renderSendUI(); }
+          if (sendSheetId === id && $('#sendSheet') && !d.partial) { closeModal(); sendSheetId = null; }
+          if (S.sendProg[id] && S.sendProg[id].phase === 'done' && !(sendSheetId === id && $('#sendSheet'))) { delete S.sendProg[id]; renderSendUI(); }
         }, 2500);
       });
     }).catch(function (e) {
@@ -1578,10 +1599,11 @@ function drawSendSheet(open) {
   var keys = Object.keys(p.files), tot = 0;
   keys.forEach(function (k) { tot += p.files[k].pct || 0; });
   var pct = keys.length ? tot / keys.length : 0;
-  var h = '<div id="sendSheet"><h3>' + (p.phase === 'done' ? 'Berhasil terkirim 🎉' : p.phase === 'error' ? 'Pengiriman terhenti' : 'Mengirim data…') + '</h3>' +
+  var h = '<div id="sendSheet"><h3>' + (p.phase === 'done' ? (p.partial ? 'Tersimpan sebagai Draft 💾' : 'Berhasil terkirim 🎉') : p.phase === 'error' ? 'Pengiriman terhenti' : 'Mengirim data…') + '</h3>' +
     '<div class="muted small" style="margin-top:3px">' + esc(p.label || '') + '</div>' +
     '<div class="prog blue" style="margin-top:12px"><i style="width:' + Math.round((p.phase === 'done' ? 1 : pct) * 100) + '%"></i></div>' +
     '<div class="small" style="font-weight:700">' + esc(phaseText(p)) + (p.phase === 'upload' ? ' ' + Math.round(pct * 100) + '%' : '') + '</div>';
+  if (p.phase === 'done' && p.partial) h += '<div class="msg info">' + ic('upload') + '<span>Lanjutkan di laptop: buka <b>jokopriyanto-cmd.github.io</b> → login akun yang sama → Beranda → <b>Draft belum lengkap</b> → Edit / lengkapi → upload SWBOOM, DTC & TBOX log → <b>Kirim ke Foreman</b>.</span></div>';
   if (p.waiting) h += '<div class="msg err">' + ic('wifioff') + '<span><b>Koneksi internet terputus.</b> Upload otomatis lanjut dari posisi terakhir saat koneksi kembali. Data aman tersimpan di HP.</span></div>';
   else if (p.phase === 'error') h += '<div class="msg err">' + ic('warn') + '<span>' + esc(p.msg) + '</span></div>';
   else if (p.msg) h += '<div class="msg warn">' + ic('clock') + '<span>' + esc(p.msg) + '</span></div>';
