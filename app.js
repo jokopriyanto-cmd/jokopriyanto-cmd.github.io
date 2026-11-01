@@ -4,7 +4,7 @@
 'use strict';
 
 var CONFIG = {
-  VERSION: '2.0.1',
+  VERSION: '2.0.2',
   API_URL: 'https://script.google.com/macros/s/AKfycbyGcLEZZ2Xm0nYl2gq53Qng-KmOUYSqvCrlwtAfRrxROwIREyGL3JyG9CQPlT_9QBYq1Q/exec',
   POLL_MS: 20000,            // cek data baru tiap 20 detik
   CHUNK: 2359296,            // 9 x 256 KB per potongan upload
@@ -366,11 +366,39 @@ function ab2b64(buf) {
   return btoa(s);
 }
 
+/* ================= tombol kembali (Android) ================= */
+var Back = {
+  t: null,
+  init: function () { window.addEventListener('popstate', Back.onPop); },
+  arm: function () {
+    if (history.state && history.state.vtTrap) return;
+    try { history.pushState({ vtTrap: true }, ''); } catch (e) { /* */ }
+  },
+  onPop: function () {
+    if (!S.user || !$('#app')) return; // layar login: biarkan keluar
+    clearTimeout(Back.t);
+    if ($('#ov')) {
+      if (!modalLock) { closeModal(); if (sendSheetId) { sendSheetId = null; renderPill(); } }
+      Back.arm(); return;
+    }
+    if (S.tab !== 'home') {
+      var wasInput = S.tab === 'input';
+      go('home');
+      if (wasInput) toast('Draft tersimpan otomatis. Lanjutkan kapan saja dari menu Input.');
+      Back.arm(); return;
+    }
+    // di Beranda: tekan sekali lagi dalam 2 detik untuk keluar
+    toast('Tekan kembali sekali lagi untuk keluar aplikasi', 2000);
+    Back.t = setTimeout(Back.arm, 2200);
+  }
+};
+
 /* ================= start ================= */
 window.addEventListener('DOMContentLoaded', init);
 
 function init() {
   setupSW();
+  Back.init();
   window.addEventListener('online', function () { S.online = true; renderNetbar(); toast('Koneksi kembali. Melanjutkan…'); syncNow(); resumeSending(); });
   window.addEventListener('offline', function () { S.online = false; renderNetbar(); });
   document.addEventListener('visibilitychange', function () {
@@ -493,6 +521,7 @@ function showApp() {
     $('#btnBell').onclick = showNotifs;
   }
   $('#btnMe').textContent = initials(S.user.nama);
+  Back.arm();
   refreshLocalDrafts();
   renderNetbar(); renderNav(); renderView(); renderBell(); renderPill();
 }
