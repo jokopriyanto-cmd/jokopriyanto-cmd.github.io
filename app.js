@@ -4,7 +4,7 @@
 'use strict';
 
 var CONFIG = {
-  VERSION: '2.0.2',
+  VERSION: '2.1.0',
   API_URL: 'https://script.google.com/macros/s/AKfycbyGcLEZZ2Xm0nYl2gq53Qng-KmOUYSqvCrlwtAfRrxROwIREyGL3JyG9CQPlT_9QBYq1Q/exec',
   POLL_MS: 20000,            // cek data baru tiap 20 detik
   CHUNK: 2359296,            // 9 x 256 KB per potongan upload
@@ -535,6 +535,8 @@ function tabsDef() {
   } else if (role() === 'foreman') {
     t.push({ k: 'data', l: 'Data', i: 'list' });
     t.push({ k: 'validasi', l: 'Validasi', i: 'check', n: vCount });
+  } else if (role() === 'partman') {
+    t.push({ k: 'data', l: 'Data', i: 'list', n: partReady().length });
   } else {
     t.push({ k: 'data', l: 'Data', i: 'list' });
     t.push({ k: 'input', l: 'Input', i: 'plus', cta: true });
@@ -603,8 +605,11 @@ function renderNetbar() {
 /* ================= data helpers ================= */
 function rows() { return (S.dash && S.dash.rows) || []; }
 function pendingForMe() {
-  return rows().filter(function (r) { return r.status === T.PENDING && r.by !== S.user.username && coversOutlet(r.outlet); });
+  return rows().filter(function (r) { return (r.status === T.PENDING || r.status === T.SUBMITTED) && r.by !== S.user.username && coversOutlet(r.outlet); });
 }
+function needCheck() { return pendingForMe().filter(function (r) { return r.status === T.PENDING; }); }
+function waitApproval() { return pendingForMe().filter(function (r) { return r.status === T.SUBMITTED; }); }
+function partReady() { return role() === 'partman' ? rows().filter(function (r) { return r.status === T.DONE && r.after === S.boot.after.WAIT; }) : []; }
 function afterWaitForMe() {
   return canInput() ? rows().filter(function (r) { return r.status === T.DONE && r.after === S.boot.after.WAIT && !r.driveDel && coversOutlet(r.outlet); }) : [];
 }
@@ -613,8 +618,8 @@ function draftMine() { return rows().filter(function (r) { return r.status === T
 function unsentLocal() { return S.localDrafts.filter(function (d) { return d.state === 'sending' || d.state === 'error'; }); }
 function todoCount() { return revisiMine().length + afterWaitForMe().length + unsentLocal().length; }
 
-function pillClass(st) { return st === T.PENDING ? 'pending' : st === T.DONE ? 'done' : st === T.REVISI ? 'revisi' : 'draft'; }
-function pillIcon(st) { return st === T.PENDING ? 'clock' : st === T.DONE ? 'check' : st === T.REVISI ? 'undo' : 'edit'; }
+function pillClass(st) { return st === T.PENDING ? 'pending' : st === T.SUBMITTED ? 'sub' : st === T.DONE ? 'done' : st === T.REVISI ? 'revisi' : 'draft'; }
+function pillIcon(st) { return st === T.PENDING ? 'clock' : st === T.SUBMITTED ? 'send' : st === T.DONE ? 'check' : st === T.REVISI ? 'undo' : 'edit'; }
 function pill(st) { return '<span class="pill ' + pillClass(st) + '">' + ic(pillIcon(st), 'sm') + esc(st) + '</span>'; }
 function afterPill(a) {
   if (!a) return '';
@@ -654,7 +659,7 @@ function renderBell() {
   if (!d) return;
   d.textContent = n > 9 ? '9+' : n; d.classList.toggle('hidden', !n);
 }
-function evIcon(t) { return t === 'validated' ? 'check' : t === 'revisi' ? 'undo' : t === 'after_done' ? 'box' : 'inbox'; }
+function evIcon(t) { return t === 'validated' || t === 'approved' ? 'check' : t === 'submitted_vf' ? 'send' : t === 'revisi' ? 'undo' : t === 'after_done' ? 'box' : 'inbox'; }
 function notifyNew() {
   var key = 'vt_notified_' + S.user.username, last = store(key);
   var fresh = S.events.filter(function (e) { return !last || e.ts > last; });
@@ -699,7 +704,8 @@ function renderHome(m) {
   var h = '<div class="deskgrid"><div>';
   h += '<div class="hero"><h1>' + sal + ', ' + esc(String(u.nama).split(' ')[0]) + ' 👋</h1><p>' + esc(u.role) + ' · ' + (u.outlet === '*' ? 'Semua outlet' : esc(u.outlet)) + '</p><div class="acts">' +
     (canInput() ? '<button class="btn or" data-act="new">' + ic('plus') + ' Input kasus baru</button>' : '') +
-    (canValidate() && pendingForMe().length ? '<button class="btn white" data-act="val">' + ic('check') + ' ' + pendingForMe().length + ' menunggu validasi</button>' : '') + '</div></div>';
+    (canValidate() && pendingForMe().length ? '<button class="btn white" data-act="val">' + ic('check') + ' ' + pendingForMe().length + ' perlu ditindaklanjuti</button>' : '') +
+    (role() === 'partman' ? '<span class="tag" style="background:rgba(255,255,255,.2);color:#fff">' + ic('eye', 'xs') + ' Akses lihat saja</span>' : '') + '</div></div>';
   // perlu tindakan
   var todo = '';
   unsentLocal().forEach(function (d) {
@@ -708,9 +714,14 @@ function renderHome(m) {
   revisiMine().forEach(function (r) { todo += todoItem('undo', 'bad', 'Perlu revisi', r.vin + ' · ' + r.nopol, 'case:' + r.id); });
   draftMine().forEach(function (r) { todo += todoItem('edit', 'warn', 'Draft belum lengkap', r.vin + ' · ketuk untuk lengkapi file & kirim ke foreman', 'case:' + r.id); });
   afterWaitForMe().forEach(function (r) { todo += todoItem('box', 'blue', 'Upload dokumentasi after', r.vin + ' · ' + r.nopol, 'after:' + r.id); });
-  if (canValidate()) pendingForMe().slice(0, 5).forEach(function (r) { todo += todoItem('clock', 'warn', 'Menunggu validasi', r.vin + ' · ' + r.byName, 'case:' + r.id); });
+  if (canValidate()) {
+    needCheck().slice(0, 5).forEach(function (r) { todo += todoItem('clock', 'warn', 'Cek data & ajukan ke VinFast', r.vin + ' · ' + r.byName, 'case:' + r.id); });
+    waitApproval().slice(0, 5).forEach(function (r) { todo += todoItem('send', 'blue', 'Menunggu approval VinFast', r.vin + ' · tandai jika sudah di-approve', 'case:' + r.id); });
+  }
+  partReady().slice(0, 8).forEach(function (r) { todo += todoItem('box', 'blue', 'Di-approve VinFast · siap part', r.vin + ' · ' + r.nopol + ' · ' + r.outlet, 'case:' + r.id); });
   if (todo) h += '<h2 style="font-size:16px;margin:4px 2px 10px">Perlu tindakan</h2>' + todo;
-  h += '<div class="kpis" style="margin-top:14px">' + kpi(st.total, 'Total kasus', '', 'inbox', '') + kpi(st.pending, 'Pending Input VTAG', 'warn', 'clock', T.PENDING) +
+  h += '<div class="small muted" style="margin:14px 2px 8px">Total ' + st.total + ' kasus</div><div class="kpis">' + kpi(st.pending, 'Pending Input VTAG', 'warn', 'clock', T.PENDING) +
+    kpi(st.submitted || 0, 'Diajukan ke VinFast', 'sub', 'send', T.SUBMITTED) +
     kpi(st.done, 'Sudah Terinput VTAG', 'ok', 'check', T.DONE) + kpi(st.revisi, 'Perlu Revisi', 'bad', 'undo', T.REVISI) + '</div>';
   h += '</div><div>';
   var outlets = Object.keys(st.byOutlet).sort();
@@ -719,8 +730,9 @@ function renderHome(m) {
     if (!outlets.length) h += '<div class="muted">Belum ada data.</div>';
     outlets.forEach(function (o) {
       var d = st.byOutlet[o], t = d.total || 1;
-      h += '<div class="obar"><div class="top"><b>' + esc(o) + '</b><span class="muted small">' + d.done + ' selesai · ' + d.pending + ' pending' + (d.revisi ? ' · ' + d.revisi + ' revisi' : '') + '</span></div><div class="track">' +
-        '<span class="seg-d" style="width:' + (d.done / t * 100) + '%"></span><span class="seg-p" style="width:' + (d.pending / t * 100) + '%"></span><span class="seg-r" style="width:' + (d.revisi / t * 100) + '%"></span></div></div>';
+      var sb = d.submitted || 0;
+      h += '<div class="obar"><div class="top"><b>' + esc(o) + '</b><span class="muted small">' + d.done + ' selesai · ' + sb + ' diajukan · ' + d.pending + ' pending' + (d.revisi ? ' · ' + d.revisi + ' revisi' : '') + '</span></div><div class="track">' +
+        '<span class="seg-d" style="width:' + (d.done / t * 100) + '%"></span><span class="seg-s" style="width:' + (sb / t * 100) + '%"></span><span class="seg-p" style="width:' + (d.pending / t * 100) + '%"></span><span class="seg-r" style="width:' + (d.revisi / t * 100) + '%"></span></div></div>';
     });
     h += '</div>';
   }
@@ -774,12 +786,18 @@ function renderList(m, mode) {
   if (mode === 'validasi') list = pendingForMe();
   var outlets = Object.keys(S.dash.stats.byOutlet).sort();
   var h = '';
-  if (mode === 'validasi') h += '<div class="hero"><h1>Validasi foreman</h1><p>Cek data & lampiran. Jika benar, status berubah jadi <b>Sudah Terinput VTAG</b>.</p></div>';
+  if (mode === 'validasi') h += '<div class="hero"><h1>Validasi foreman</h1><p>1) Cek data → ajukan ke sistem VinFast → tandai <b>Diajukan ke VinFast</b>. 2) Setelah di-approve VinFast → tandai <b>Sudah Terinput VTAG</b>.</p></div>';
   else h += '<div class="hero"><h1>Data kasus</h1><p>' + (S.user.outlet === '*' || isAdmin() ? 'Semua outlet' : esc(S.user.outlet)) + ' · ' + list.length + ' kasus</p></div>';
   h += '<div class="search">' + ic('search') + '<input id="fq" type="search" placeholder="Cari VIN, Nopol, customer, mekanik…" value="' + esc(f.q) + '"></div>';
+  if (mode === 'validasi') {
+    var vf = f.vstatus || '';
+    h += '<div class="chips" id="vchips">' + [['', 'Semua', list.length], [T.PENDING, 'Perlu dicek', needCheck().length], [T.SUBMITTED, 'Menunggu approval VinFast', waitApproval().length]]
+      .map(function (c) { return '<button class="chip' + (vf === c[0] ? ' on' : '') + '" data-s="' + esc(c[0]) + '">' + c[1] + '<b>' + c[2] + '</b></button>'; }).join('') + '</div>';
+  }
   if (mode !== 'validasi') {
     var cnt = function (fn) { return list.filter(fn).length; };
     var chips = [['', 'Semua', list.length], [T.PENDING, 'Pending', cnt(function (r) { return r.status === T.PENDING; })],
+      [T.SUBMITTED, 'Diajukan VinFast', cnt(function (r) { return r.status === T.SUBMITTED; })],
       [T.DONE, 'Sudah', cnt(function (r) { return r.status === T.DONE; })], [T.REVISI, 'Revisi', cnt(function (r) { return r.status === T.REVISI; })],
       ['after', 'Menunggu after', cnt(function (r) { return r.after === S.boot.after.WAIT; })]];
     if (canInput()) chips.push([T.DRAFT, 'Draft', cnt(function (r) { return r.status === T.DRAFT; })]);
@@ -791,6 +809,7 @@ function renderList(m, mode) {
   var draw = function () {
     var q = f.q.trim().toLowerCase();
     var l = list.filter(function (r) {
+      if (mode === 'validasi' && f.vstatus && r.status !== f.vstatus) return false;
       if (mode !== 'validasi') {
         if (f.status === 'after') { if (r.after !== S.boot.after.WAIT) return false; }
         else if (f.status && r.status !== f.status) return false;
@@ -806,6 +825,9 @@ function renderList(m, mode) {
   };
   $('#fq').oninput = function () { f.q = this.value; draw(); };
   if ($('#fo')) $('#fo').onchange = function () { f.outlet = this.value; draw(); };
+  if ($('#vchips')) $$('#vchips .chip').forEach(function (b) {
+    b.onclick = function () { f.vstatus = b.dataset.s; $$('#vchips .chip').forEach(function (x) { x.classList.toggle('on', x === b); }); draw(); };
+  });
   if ($('#chips')) $$('#chips .chip').forEach(function (b) {
     b.onclick = function () { f.status = b.dataset.s; $$('#chips .chip').forEach(function (x) { x.classList.toggle('on', x === b); }); draw(); };
   });
@@ -906,6 +928,9 @@ function renderCase(d) {
     '<div class="muted small" style="margin-top:3px">' + esc(c.CaseID) + ' · ' + esc(fmtDT(c.Timestamp)) + '</div></div><div style="text-align:right">' + pill(c.Status) + '<div style="margin-top:4px">' + afterPill(c.AfterStatus) + '</div></div></div>';
   if (c.DriveDeletedAt) h += '<div class="msg warn">' + ic('trash') + '<span>File Drive kasus ini sudah dihapus permanen oleh ' + esc(c.DriveDeletedBy) + ' (' + esc(fmtDT(c.DriveDeletedAt)) + '). Data di sheet tetap tersimpan.</span></div>';
   if (c.ValidationNote) h += '<div class="msg ' + (c.Status === T.REVISI ? 'err' : 'ok') + '">' + ic(c.Status === T.REVISI ? 'undo' : 'check') + '<span><b>Catatan foreman' + (c.ValidatedBy ? ' (' + esc(c.ValidatedBy) + ')' : '') + ':</b> ' + esc(c.ValidationNote) + '</span></div>';
+  if (c.VinfastAt) h += '<div class="msg info">' + ic('send') + '<span><b>Diajukan ke VinFast</b> oleh ' + esc(c.VinfastBy) + ' · ' + esc(fmtDT(c.VinfastAt)) + (c.VinfastRef ? ' · No. <b>' + esc(c.VinfastRef) + '</b>' : '') +
+    (c.ApprovedAt ? '<br><b>Approved VinFast</b> ditandai ' + esc(c.ApprovedBy) + ' · ' + esc(fmtDT(c.ApprovedAt)) : (c.Status === T.SUBMITTED ? '<br>Menunggu approval VinFast.' : '')) + '</span></div>';
+  if (F.viewOnly) h += '<div class="msg info">' + ic('eye') + '<span>Akses Partman: lihat saja. Kode part ada di bagian Dokumentasi After Penggantian.</span></div>';
   if (c.Status === T.DONE && c.AfterStatus === A.WAIT && F.canAfter) h += '<div class="msg info">' + ic('box') + '<span>Kasus sudah divalidasi. Silakan upload <b>Dokumentasi After Penggantian</b>.</span></div>';
   h += '<div class="deskgrid"><div>';
   h += '<div class="sec-t">' + ic('car') + 'Kendaraan</div><dl class="kv">' + kv('Workshop', c.Outlet) + kv('Nopol', c.Nopol) + kv('Model', c.Model) + kv('ODO', c.ODO) + kv('Customer', c.Customer) + kv('Failure date', fmtDate(c.FailureDate)) + kv('Jenis kasus', c.CaseType) + kv('Diinput', c.InputByName) + '</dl>';
@@ -921,9 +946,18 @@ function renderCase(d) {
   if (c.FolderUrl) h += '<a class="btn sec block" style="margin-top:10px" href="' + esc(c.FolderUrl) + '" target="_blank" rel="noopener">' + ic('folder') + ' Buka folder Google Drive</a>';
   h += '</div></div>';
   if (F.canValidate) {
-    h += '<div class="sec-t">' + ic('shield') + 'Validasi foreman</div><textarea id="vnote" placeholder="Catatan (wajib jika minta revisi). Mis. foto ODO buram…"></textarea>' +
-      '<div id="verr" class="msg err hidden"></div><div class="two" style="margin-top:10px"><button class="btn ok" id="bOk">' + ic('check') + ' Data benar</button><button class="btn bad" id="bRev">' + ic('undo') + ' Minta revisi</button></div>' +
-      '<div class="small muted" style="margin-top:6px">"Data benar" → status jadi <b>Sudah Terinput VTAG</b> & mekanik diminta upload dokumentasi after.</div>';
+    h += '<div class="sec-t">' + ic('shield') + 'Validasi foreman · langkah 1</div>' +
+      '<div class="small muted" style="margin:-4px 0 8px">Cek data & lampiran. Jika benar, ajukan ke sistem VinFast lalu tandai di sini.</div>' +
+      '<label>No. VTAG / tiket VinFast <span class="opt">(opsional)</span></label><input type="text" id="vref" placeholder="Mis. VTAG-2026-001" style="margin-bottom:10px">' +
+      '<textarea id="vnote" placeholder="Catatan (wajib jika minta revisi). Mis. foto ODO buram…"></textarea>' +
+      '<div id="verr" class="msg err hidden"></div><div class="stack" style="margin-top:10px"><button class="btn block" id="bOk">' + ic('send') + ' Data benar & sudah diajukan ke VinFast</button><button class="btn bad block" id="bRev">' + ic('undo') + ' Minta revisi ke mekanik</button></div>';
+  }
+  if (F.canApprove) {
+    h += '<div class="sec-t">' + ic('shield') + 'Approval VinFast · langkah 2</div>' +
+      '<div class="small muted" style="margin:-4px 0 8px">Tandai setelah kasus di-approve di sistem VinFast. Status berubah jadi <b>Sudah Terinput VTAG</b> & mekanik diminta upload dokumentasi after.</div>' +
+      '<label>No. VTAG / tiket VinFast <span class="opt">(opsional)</span></label><input type="text" id="vref" value="' + esc(c.VinfastRef || '') + '" style="margin-bottom:10px">' +
+      '<textarea id="vnote" placeholder="Catatan (wajib jika ditolak VinFast)"></textarea>' +
+      '<div id="verr" class="msg err hidden"></div><div class="stack" style="margin-top:10px"><button class="btn ok block" id="bOk">' + ic('check') + ' Sudah di-approve VinFast → Sudah Terinput VTAG</button><button class="btn bad block" id="bRev">' + ic('undo') + ' Ditolak VinFast → kembalikan ke mekanik</button></div>';
   }
   h += '<div class="stack" style="margin-top:16px">';
   if (F.canAfter) h += '<button class="btn or block" id="bAfter">' + ic('box') + (c.AfterStatus === A.DONE ? ' Perbarui Dokumentasi After' : ' Upload Dokumentasi After') + '</button>';
@@ -953,23 +987,26 @@ function renderCase(d) {
         api('deleteCase', c.CaseID).then(function () { closeModal(); toast('Kasus dihapus.'); S.rev = null; syncNow(); }, function (e) { closeModal(); toast(errMsg(e)); });
       });
   };
-  if (F.canValidate) {
+  if (F.canValidate || F.canApprove) {
     var goV = function (decision) {
-      var note = $('#vnote').value, er = $('#verr');
+      var note = $('#vnote').value, er = $('#verr'), ref = $('#vref') ? $('#vref').value : '';
       er.classList.add('hidden');
       if (decision === 'revisi' && !note.trim()) { er.innerHTML = ic('warn') + '<span>Isi catatan revisi untuk mekanik.</span>'; er.classList.remove('hidden'); $('#vnote').focus(); return; }
       $('#bOk').disabled = $('#bRev').disabled = true;
-      api('validateCase', c.CaseID, decision, note).then(function () {
+      // server lama (< 2.1) belum kenal status "Diajukan ke VinFast": pakai alur lama
+      if (decision === 'submit' && S.boot && S.boot.version && S.boot.version < '2.1') decision = 'valid';
+      api('validateCase', c.CaseID, decision, note, ref).then(function () {
+        if (decision === 'valid') decision = 'approve';
         closeModal();
-        toast(decision === 'valid' ? '✔ Divalidasi: Sudah Terinput VTAG' : '↩ Dikembalikan ke mekanik untuk revisi');
-        markLocal(c.CaseID, { status: decision === 'valid' ? T.DONE : T.REVISI, after: decision === 'valid' && d.after.length ? A.WAIT : '' });
+        toast(decision === 'submit' ? '➜ Ditandai: Diajukan ke VinFast' : decision === 'approve' ? '✔ Sudah Terinput VTAG' : '↩ Dikembalikan ke mekanik untuk revisi');
+        markLocal(c.CaseID, decision === 'submit' ? { status: T.SUBMITTED } : decision === 'approve' ? { status: T.DONE, after: d.after.length ? A.WAIT : '' } : { status: T.REVISI });
         S.rev = null; syncNow();
       }, function (e) {
         er.innerHTML = ic('warn') + '<span>' + esc(errMsg(e)) + '</span>'; er.classList.remove('hidden');
         $('#bOk').disabled = $('#bRev').disabled = false;
       });
     };
-    $('#bOk').onclick = function () { goV('valid'); };
+    $('#bOk').onclick = function () { goV(F.canApprove ? 'approve' : 'submit'); };
     $('#bRev').onclick = function () { goV('revisi'); };
   }
 }
@@ -1705,7 +1742,7 @@ function userModal(u, el) {
   modal('<h3>' + (isNew ? 'Tambah pengguna' : 'Ubah ' + esc(u.username)) + '</h3><div class="stack" style="margin-top:14px">' +
     '<div><label>Username</label><input type="text" id="mu" value="' + esc(u.username) + '" ' + (isNew ? '' : 'readonly style="background:var(--gray-bg)"') + ' autocapitalize="none"></div>' +
     '<div><label>Nama</label><input type="text" id="mn" value="' + esc(u.nama) + '"></div>' +
-    '<div class="two"><div><label>Role</label><select id="mr">' + ['mekanik', 'foreman', 'admin'].map(function (r) { return '<option' + (u.role === r ? ' selected' : '') + '>' + r + '</option>'; }).join('') + '</select></div>' +
+    '<div class="two"><div><label>Role</label><select id="mr">' + ['mekanik', 'foreman', 'partman', 'admin'].map(function (r) { return '<option' + (u.role === r ? ' selected' : '') + '>' + r + '</option>'; }).join('') + '</select></div>' +
     '<div><label>Status</label><select id="ma"><option value="1"' + (u.aktif ? ' selected' : '') + '>Aktif</option><option value="0"' + (!u.aktif ? ' selected' : '') + '>Nonaktif</option></select></div></div>' +
     '<div><label>Outlet</label><select id="mo"><option value="*"' + (u.outlet === '*' ? ' selected' : '') + '>* (semua outlet)</option>' + S.boot.outlets.map(function (o) { return '<option' + (u.outlet === o ? ' selected' : '') + '>' + esc(o) + '</option>'; }).join('') + '</select></div>' +
     '<div><label>' + (isNew ? 'Password awal (min. 8)' : 'Reset password (kosongkan jika tidak)') + '</label>' + pwField('mp', 'new-password') + '</div></div>' +
@@ -1729,7 +1766,7 @@ function bulkModal(el) {
   modal('<h3>Tambah banyak pengguna</h3>' +
     '<p class="muted small" style="margin:6px 0 12px">Tempel daftar dari Excel / Google Sheets. <b>Satu baris = satu orang.</b> Kolom: <b>Nama</b>, Username, Outlet, Role, Password. Hanya Nama yang wajib — username dibuat dari nama, password acak.</p>' +
     '<div class="two"><div><label>Outlet default</label><select id="bo"><option value="">Pilih outlet…</option>' + S.boot.outlets.map(function (o) { return '<option>' + esc(o) + '</option>'; }).join('') + '</select></div>' +
-    '<div><label>Role default</label><select id="br"><option>mekanik</option><option>foreman</option></select></div></div>' +
+    '<div><label>Role default</label><select id="br"><option>mekanik</option><option>foreman</option><option>partman</option></select></div></div>' +
     '<label style="margin-top:12px">Daftar pengguna</label><textarea id="bt" style="min-height:170px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:14px" placeholder="Budi Santoso&#10;Andi Pratama&#9;andi.p&#9;Otoklix Joglo"></textarea>' +
     '<div class="small muted" style="margin-top:6px">Maks. 300 baris. Username yang sudah ada dilewati. Pengguna baru wajib ganti password saat login pertama.</div>' +
     '<div id="berr" class="msg err hidden"></div><div class="stack" style="margin-top:14px"><button class="btn block" id="bgo">' + ic('users') + ' Buat akun</button><button class="btn sec block" id="bx">Batal</button></div>', 'narrow');
