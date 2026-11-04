@@ -4,7 +4,7 @@
 'use strict';
 
 var CONFIG = {
-  VERSION: '2.1.0',
+  VERSION: '2.2.0',
   API_URL: 'https://script.google.com/macros/s/AKfycbyGcLEZZ2Xm0nYl2gq53Qng-KmOUYSqvCrlwtAfRrxROwIREyGL3JyG9CQPlT_9QBYq1Q/exec',
   POLL_MS: 20000,            // cek data baru tiap 20 detik
   CHUNK: 2359296,            // 9 x 256 KB per potongan upload
@@ -251,22 +251,82 @@ function makeThumb(source) {
   } catch (e) { return null; }
 }
 
-/** Foto: perkecil ke maks 2560 px, JPEG 86% (tetap tajam, ukuran turun 70–90%). */
-function compressImage(file, allow) {
+/* ---------- watermark (dokumentasi warranty) ---------- */
+function tzLabel() {
+  var o = -new Date().getTimezoneOffset() / 60;
+  return o === 7 ? 'WIB' : o === 8 ? 'WITA' : o === 9 ? 'WIT' : 'GMT' + (o >= 0 ? '+' : '') + o;
+}
+function fmtStamp(ms) {
+  var d = new Date(ms), p = function (n) { return ('0' + n).slice(-2); };
+  return p(d.getDate()) + '/' + p(d.getMonth() + 1) + '/' + d.getFullYear() + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds()) + ' ' + tzLabel();
+}
+/** Info watermark untuk satu file. src: 'cam' (kamera aplikasi) / 'gal' (galeri / file). */
+function wmInfo(F, item, file, src) {
+  var v = F.v || {};
+  var t = src === 'cam' ? Date.now() : (file.lastModified && file.lastModified > 1420070400000 ? file.lastModified : Date.now());
+  return { t: t, src: src, vin: String(v.vin || '').toUpperCase(), nopol: String(v.nopol || '').toUpperCase(), outlet: v.outlet || S.user.outlet, user: S.user.nama, label: item.label };
+}
+function fitFont(ctx, text, weight, size, maxW) {
+  var fs = size;
+  ctx.font = weight + ' ' + fs + 'px system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif';
+  while (fs > 9 && ctx.measureText(text).width > maxW) { fs -= 1; ctx.font = weight + ' ' + fs + 'px system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif'; }
+  return fs;
+}
+/** Gambar watermark di bagian bawah frame. t = waktu (ms) yang ditampilkan. */
+function drawWatermark(ctx, w, h, info, t) {
+  var base = Math.max(14, Math.round(Math.min(w, h) * 0.034));
+  var pad = Math.round(base * 0.7), lh = Math.round(base * 1.32);
+  var lines = [
+    [fmtStamp(t) + (info.src === 'gal' ? '  (galeri)' : ''), '800', base * 1.15, '#ffffff'],
+    [[info.vin ? 'VIN ' + info.vin : 'VIN -', info.nopol].filter(Boolean).join('  ·  '), '600', base * 0.92, 'rgba(255,255,255,.95)'],
+    [[info.outlet, info.user, info.label].filter(Boolean).join('  ·  '), '500', base * 0.86, 'rgba(255,255,255,.9)']
+  ];
+  var boxH = pad * 2 + lh * lines.length;
+  ctx.save();
+  var g = ctx.createLinearGradient(0, h - boxH * 1.5, 0, h);
+  g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(0.35, 'rgba(0,0,0,.45)'); g.addColorStop(1, 'rgba(0,0,0,.72)');
+  ctx.fillStyle = g; ctx.fillRect(0, h - boxH * 1.5, w, boxH * 1.5);
+  ctx.textBaseline = 'top'; ctx.shadowColor = 'rgba(0,0,0,.7)'; ctx.shadowBlur = Math.max(2, base * 0.15);
+  // garis aksen oranye
+  ctx.fillStyle = '#ff6400'; ctx.fillRect(pad, h - boxH + pad, Math.max(3, Math.round(base * 0.18)), lh * lines.length - Math.round(lh * 0.25));
+  var x = pad + Math.max(3, Math.round(base * 0.18)) + Math.round(base * 0.55);
+  lines.forEach(function (l, i) {
+    fitFont(ctx, l[0], l[1], Math.round(l[2]), w - x - pad);
+    ctx.fillStyle = l[3];
+    ctx.fillText(l[0], x, h - boxH + pad + i * lh);
+  });
+  // label merek di pojok kanan atas
+  var tag = 'OTOKLIX · VTAG', tfs = Math.max(11, Math.round(base * 0.72));
+  ctx.shadowBlur = 0;
+  ctx.font = '800 ' + tfs + 'px system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif';
+  var tw = ctx.measureText(tag).width, bx = w - pad - tw - tfs, by = pad;
+  ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.fillRect(bx, by, tw + tfs, tfs * 1.7);
+  ctx.fillStyle = '#ff7a26'; ctx.fillText(tag, bx + tfs / 2, by + tfs * 0.35);
+  ctx.restore();
+}
+
+/**
+ * Foto: (1) watermark tanggal-jam, VIN, Nopol, outlet, mekanik; (2) perkecil maks 2560 px JPEG 86%.
+ * Tanpa kompres: resolusi asli (maks 4096 px) JPEG 92%.
+ */
+function compressImage(file, allow, wm) {
   if (!window.createImageBitmap || !/^image\/(jpeg|jpg|png|webp|heic|heif)$/i.test(file.type || '')) return Promise.resolve(null);
   return createImageBitmap(file).then(function (bmp) {
     var thumb = makeThumb(bmp);
-    if (!allow || file.size < CONFIG.IMG_MIN_BYTES) { bmp.close && bmp.close(); return { thumb: thumb }; }
-    var sc = Math.min(1, CONFIG.IMG_MAX / Math.max(bmp.width, bmp.height));
+    if (!wm && (!allow || file.size < CONFIG.IMG_MIN_BYTES)) { bmp.close && bmp.close(); return { thumb: thumb }; }
+    var maxSide = allow ? CONFIG.IMG_MAX : 4096;
+    var sc = Math.min(1, maxSide / Math.max(bmp.width, bmp.height));
     var cv = document.createElement('canvas');
     cv.width = Math.round(bmp.width * sc); cv.height = Math.round(bmp.height * sc);
     var ctx = cv.getContext('2d');
     ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
     ctx.drawImage(bmp, 0, 0, cv.width, cv.height);
     bmp.close && bmp.close();
-    return canvasToBlob(cv, 'image/jpeg', CONFIG.IMG_Q).then(function (b) {
-      if (!b || b.size >= file.size * 0.9) return { thumb: thumb };
-      return { blob: b, type: 'image/jpeg', name: String(file.name || 'foto').replace(/\.[^.]+$/, '') + '.jpg', thumb: thumb };
+    if (wm) { drawWatermark(ctx, cv.width, cv.height, wm, wm.t); thumb = makeThumb(cv) || thumb; }
+    return canvasToBlob(cv, 'image/jpeg', allow ? CONFIG.IMG_Q : 0.92).then(function (b) {
+      if (!b) return { thumb: thumb };
+      if (!wm && b.size >= file.size * 0.9) return { thumb: thumb };
+      return { blob: b, type: 'image/jpeg', name: String(file.name || 'foto').replace(/\.[^.]+$/, '') + '.jpg', thumb: thumb, wm: !!wm };
     });
   }).catch(function () { return null; });
 }
@@ -286,7 +346,7 @@ function canCompressVideo() {
  * Video: diputar ulang di latar & direkam ulang maks 1080p (bitrate ±6 Mbps) — tetap jelas,
  * ukuran turun 50–80%. Butuh waktu sepanjang durasi video. Gagal/dibatalkan = pakai file asli.
  */
-function compressVideo(file, onProgress, signal) {
+function compressVideo(file, onProgress, signal, wm) {
   return new Promise(function (resolve) {
     var url = URL.createObjectURL(file), done = false, rec, ac, timer, rafId, chunks = [], thumb = null;
     var v = document.createElement('video');
@@ -315,7 +375,12 @@ function compressVideo(file, onProgress, signal) {
       var w = Math.round(W * sc / 2) * 2, h = Math.round(H * sc / 2) * 2;
       var br = Math.round(Math.max(2500000, Math.min(6500000, 6000000 * (w * h) / (1920 * 1080))));
       var est = br / 8 * dur + 160000 / 8 * dur;
-      if (est > file.size * 0.8) { finish(null, 'sudah kecil'); return; }
+      if (wm) {
+        // video diberi watermark: kualitas dijaga setara aslinya (tidak lebih dari 6,5 Mbps)
+        var orig = file.size * 8 / dur;
+        br = Math.round(Math.max(1500000, Math.min(br, orig * 1.05)));
+      } else if (est > file.size * 0.8) { finish(null, 'sudah kecil'); return; }
+      var t0 = wm ? (wm.src === 'cam' ? Date.now() - dur * 1000 : (wm.t - dur * 1000)) : 0;
       var cv = document.createElement('canvas'); cv.width = w; cv.height = h;
       var ctx = cv.getContext('2d');
       var stream = cv.captureStream(30);
@@ -334,20 +399,24 @@ function compressVideo(file, onProgress, signal) {
         if (done && !v.ended) return;
         var type = mime.split(';')[0];
         var out = new Blob(chunks, { type: type });
-        if (!out.size || out.size >= file.size * 0.85) { finish(null, 'tidak lebih kecil'); return; }
+        if (!out.size || out.size >= file.size * (wm ? 1.6 : 0.85)) { finish(null, 'tidak lebih kecil'); return; }
         var ext = /mp4/.test(type) ? '.mp4' : '.webm';
-        finish({ blob: out, type: type, name: String(file.name || 'video').replace(/\.[^.]+$/, '') + ext }, 'ok');
+        finish({ blob: out, type: type, name: String(file.name || 'video').replace(/\.[^.]+$/, '') + ext, wm: !!wm }, 'ok');
       };
+      function paint() {
+        try { ctx.drawImage(v, 0, 0, w, h); } catch (e) { /* */ }
+        if (wm) drawWatermark(ctx, w, h, wm, t0 + v.currentTime * 1000);
+      }
       function draw() {
         if (done) return;
-        try { ctx.drawImage(v, 0, 0, w, h); } catch (e) { /* */ }
+        paint();
         if (!thumb && v.currentTime > 0.2) thumb = makeThumb(cv);
         if (onProgress) onProgress(Math.min(0.99, v.currentTime / dur), Math.max(0, dur - v.currentTime));
         rafId = requestAnimationFrame(draw);
       }
       v.onended = function () {
         if (done) return;
-        try { ctx.drawImage(v, 0, 0, w, h); } catch (e) { /* */ }
+        paint();
         setTimeout(function () { try { rec.stop(); } catch (e) { finish(null, 'encoder'); } }, 250);
       };
       var go = function () {
@@ -1165,7 +1234,7 @@ function renderForm(m) {
   if (fd('remarks').tampil) detail += '<div><label>' + lbl(fd('remarks')) + '</label><textarea id="f_rem" style="min-height:64px">' + esc(v.remarks) + '</textarea></div>';
   if (detail) h += '<div class="card"><h2><span class="hic num">2</span>Detail kasus</h2><div class="stack">' + detail + '</div></div>';
 
-  h += '<div class="card"><h2><span class="hic num or">3</span>Lampiran untuk VTAG</h2><div class="small muted" style="margin:-4px 0 10px">Foto dikompres otomatis tanpa buram. File tersimpan di HP sampai terkirim, aman jika koneksi putus.</div>' +
+  h += '<div class="card"><h2><span class="hic num or">3</span>Lampiran untuk VTAG</h2><div class="small muted" style="margin:-4px 0 10px">' + (opt('watermark', true) ? '🕒 Foto & video otomatis diberi <b>watermark tanggal-jam, VIN & Nopol</b> (isi VIN & Nopol dulu sebelum foto). ' : '') + 'Foto dikompres tanpa buram. File tersimpan di HP sampai terkirim.</div>' +
     '<div class="small" id="attc" style="font-weight:700"></div><div class="prog"><i id="attp"></i></div><div id="atts"></div></div>';
   h += '<div id="ferr" class="msg err hidden"></div><div class="sendbar"><button class="btn or block" type="submit" id="fSend">' + ic('send') + (adminEdit ? ' Simpan perubahan' : ' Kirim ke Foreman') + '</button></div>' +
     (!adminEdit && isTouch() ? '<button type="button" class="btn sec block" id="fLater" style="margin-top:10px">' + ic('upload') + ' Simpan dulu, lanjut upload file dari laptop</button>' +
@@ -1270,13 +1339,13 @@ function drawAtts() {
     var picks = pickButtons(a);
     return head + '<div class="att ' + cls + '" id="att_' + a.key + '"><div class="ai">' + thumb + '</div><div class="t"><b>' + esc(a.label) + ' ' + (a.wajib ? '<span class="tag w">Wajib</span>' : '<span class="tag">Opsional</span>') + '</b>' +
       (a.hint ? '<div class="small muted">' + esc(a.hint) + '</div>' : '') + status + '</div><div class="acts">' +
-      (pr ? (pr.cancel ? '<button type="button" class="xbtn" data-skip="' + a.key + '">Lewati kompres</button>' : '') :
+      (pr ? (pr.cancel ? '<button type="button" class="xbtn" data-skip="' + a.key + '">Lewati</button>' : '') :
         picks +
         (nf ? '<button type="button" class="xbtn" data-rm="' + a.key + '">Hapus</button>' : '')) + '</div></div>';
   }).join('') || '<div class="muted small">Tidak ada lampiran untuk jenis kasus ini.</div>';
   $('#attc').textContent = ok + ' dari ' + req + ' lampiran wajib terpenuhi';
   $('#attp').style.width = (req ? ok / req * 100 : 100) + '%';
-  $$('input[type=file]', el).forEach(function (inp) { inp.onchange = function () { var f = inp.files[0]; inp.value = ''; if (f) pickFile(inp.dataset.key, f); }; });
+  $$('input[type=file]', el).forEach(function (inp) { inp.onchange = function () { var f = inp.files[0]; inp.value = ''; if (f) pickFile(inp.dataset.key, f, inp.dataset.src); }; });
   $$('[data-rm]', el).forEach(function (b) {
     b.onclick = function () {
       var k = b.dataset.rm, f = F.files[k];
@@ -1291,7 +1360,7 @@ function drawAtts() {
 function isTouch() { return !!(window.matchMedia && window.matchMedia('(pointer:coarse)').matches) || 'ontouchstart' in window; }
 function pickBtn(key, icon, text, accept, capture, primary) {
   return '<label class="pick ' + (primary ? '' : 'alt') + '">' + ic(icon, 'sm') + text +
-    '<input type="file" data-key="' + key + '" accept="' + accept + '"' + (capture ? ' capture="environment"' : '') + '></label>';
+    '<input type="file" data-key="' + key + '" data-src="' + (capture ? 'cam' : 'gal') + '" accept="' + accept + '"' + (capture ? ' capture="environment"' : '') + '></label>';
 }
 function pickButtons(a) {
   var k = a.key;
@@ -1305,8 +1374,11 @@ function pickButtons(a) {
 function itemByKey(key) { return (S.boot.settings || []).filter(function (i) { return i.key === key; })[0] || { key: key, label: key, kind: 'any' }; }
 
 /** File dipilih: langsung disimpan di HP (aman jika koneksi putus / aplikasi tertutup), lalu dikompres. */
-function pickFile(key, file) {
+function pickFile(key, file, src) {
   var F = S.form, item = itemByKey(key), pk = F.id + '|' + key;
+  collect();
+  var wmOn = opt('watermark', true);
+  var wmData = wmOn ? wmInfo(F, item, file, src) : null;
   if (!file.size) { toast('File kosong / tidak bisa dibaca. Pilih ulang.'); return; }
   if ($('#ferr')) $('#ferr').classList.add('hidden');
   if (file.size > 500 * 1024 * 1024) { toast('File terlalu besar (maks 500 MB).'); return; }
@@ -1322,14 +1394,15 @@ function pickFile(key, file) {
     F.files[key] = { blobId: blobId, name: file.name || (key + (isImg ? '.jpg' : isVid ? '.mp4' : '')), type: file.type || 'application/octet-stream', size: file.size, origSize: file.size, status: 'ready', label: item.label, note: stored === 'mem' ? 'Penyimpanan HP penuh: jangan tutup aplikasi sampai terkirim' : '' };
     Drafts.save(F);
     if (isImg) {
-      S.proc[pk] = { pct: 0.5, label: 'Mengompres foto…' }; if (S.form === F) drawAtts();
-      return compressImage(file, opt('kompres_foto', true)).then(function (r) {
-        if (!r) return;
+      S.proc[pk] = { pct: 0.5, label: wmOn ? 'Memberi watermark & mengompres foto…' : 'Mengompres foto…' }; if (S.form === F) drawAtts();
+      return compressImage(file, opt('kompres_foto', true), wmData).then(function (r) {
+        if (!r) { if (wmOn && F.files[key]) F.files[key].note = 'Format foto tidak didukung: tanpa watermark'; return; }
         if (r.thumb) F.files[key].thumb = r.thumb;
-        if (r.blob) return replaceBlob(F, key, r.blob, r.name, r.type);
+        if (r.blob) return replaceBlob(F, key, r.blob, r.name, r.type).then(function () { if (r.wm && F.files[key]) F.files[key].note = '🕒 Watermark ' + fmtStamp(wmData.t); });
       });
     }
-    if (isVid && opt('kompres_video', true) && file.size >= CONFIG.VID_MIN_BYTES && canCompressVideo()) return runVideoCompress(F, key, file, 0);
+    if (isVid && canCompressVideo() && (wmOn || (opt('kompres_video', true) && file.size >= CONFIG.VID_MIN_BYTES))) return runVideoCompress(F, key, file, 0, wmData);
+    if (isVid && wmOn && F.files[key]) F.files[key].note = isIOS() ? 'Watermark video belum didukung di iPhone (dikirim asli)' : 'HP tidak mendukung watermark video (dikirim asli)';
   }).catch(function () {
     toast('File "' + item.label + '" tidak bisa dibaca. Pilih ulang file tersebut.', 5000);
     delete F.files[key];
@@ -1346,35 +1419,36 @@ function replaceBlob(F, key, blob, name, type) {
   }).catch(function () { /* tetap pakai file asli */ });
 }
 
-function runVideoCompress(F, key, file, attempt) {
+function runVideoCompress(F, key, file, attempt, wm) {
   var pk = F.id + '|' + key, ctrl = new AbortController(), hidden = false;
   var onVis = function () { if (document.visibilityState === 'hidden') { hidden = true; ctrl.abort(); } };
   document.addEventListener('visibilitychange', onVis);
-  S.proc[pk] = { pct: 0, label: 'Mengompres video… (tetap buka aplikasi)', cancel: function () { ctrl.abort(); } };
+  var verb = wm ? 'Memberi watermark video' : 'Mengompres video';
+  S.proc[pk] = { pct: 0, label: verb + '… (tetap buka aplikasi)', cancel: function () { ctrl.abort(); } };
   if (S.form === F) drawAtts();
   var t0 = Date.now();
   var tick = throttle(function () { if (S.form === F && $('#att_' + key)) drawAtts(); }, 700);
   return compressVideo(file, function (p, left) {
-    S.proc[pk].pct = p; S.proc[pk].label = 'Mengompres video… ' + Math.round(p * 100) + '% (±' + Math.ceil(left) + ' dtk lagi, tetap buka aplikasi)';
+    S.proc[pk].pct = p; S.proc[pk].label = verb + '… ' + Math.round(p * 100) + '% (±' + Math.ceil(left) + ' dtk lagi, tetap buka aplikasi)';
     tick();
-  }, ctrl.signal).then(function (r) {
+  }, ctrl.signal, wm).then(function (r) {
     document.removeEventListener('visibilitychange', onVis);
     if (r.thumb && F.files[key]) F.files[key].thumb = r.thumb;
     if (r.out) {
       var before = file.size;
       return replaceBlob(F, key, r.out.blob, r.out.name, r.out.type).then(function () {
-        if (F.files[key]) { F.files[key].origSize = before; F.files[key].note = 'Video dikompres dalam ' + Math.round((Date.now() - t0) / 1000) + ' detik'; }
+        if (F.files[key]) { F.files[key].origSize = before; F.files[key].note = (r.out.wm ? '🕒 Watermark ditambahkan' : 'Video dikompres') + ' dalam ' + Math.round((Date.now() - t0) / 1000) + ' detik'; }
       });
     }
     if (hidden && attempt < 1) {
       // aplikasi sempat ditinggalkan: ulangi saat dibuka lagi
       S.proc[pk] = { pct: 0, label: 'Kompres video menunggu aplikasi dibuka…', cancel: null };
       return new Promise(function (res) {
-        var h = function () { if (document.visibilityState === 'visible') { document.removeEventListener('visibilitychange', h); res(runVideoCompress(F, key, file, attempt + 1)); } };
+        var h = function () { if (document.visibilityState === 'visible') { document.removeEventListener('visibilitychange', h); res(runVideoCompress(F, key, file, attempt + 1, wm)); } };
         document.addEventListener('visibilitychange', h);
       });
     }
-    if (F.files[key] && r.reason !== 'sudah kecil' && r.reason !== 'tidak lebih kecil') F.files[key].note = 'Dikirim ukuran asli' + (r.reason === 'batal' ? ' (kompres dilewati)' : '');
+    if (F.files[key] && r.reason !== 'sudah kecil' && r.reason !== 'tidak lebih kecil') F.files[key].note = 'Dikirim ukuran asli' + (wm ? ' tanpa watermark' : '') + (r.reason === 'batal' ? ' (dilewati)' : '');
   });
 }
 function throttle(fn, ms) { var last = 0; return function () { var n = Date.now(); if (n - last > ms) { last = n; fn(); } }; }
