@@ -4,7 +4,7 @@
 'use strict';
 
 var CONFIG = {
-  VERSION: '2.3.0',
+  VERSION: '2.3.1',
   API_URL: 'https://script.google.com/macros/s/AKfycbyGcLEZZ2Xm0nYl2gq53Qng-KmOUYSqvCrlwtAfRrxROwIREyGL3JyG9CQPlT_9QBYq1Q/exec',
   POLL_MS: 20000,            // cek data baru tiap 20 detik
   CHUNK: 2359296,            // 9 x 256 KB per potongan upload
@@ -772,11 +772,12 @@ function showNotifs() {
     '<div style="margin-top:10px">' + (S.events.length ? S.events.map(function (e, i) {
       return '<button class="notif ' + (e.ts > seen ? 'unread' : '') + '" data-i="' + i + '"><span class="ni">' + ic(evIcon(e.type)) + '</span><span class="nt">' + esc(e.message) + '<small>' + esc(ago(e.ts)) + ' · ' + esc(e.outlet) + '</small></span></button>';
     }).join('') : '<div class="empty">' + ic('bell') + '<div>Belum ada notifikasi.</div></div>') + '</div>' +
-    '<button class="btn sec block" id="nClose" style="margin-top:14px">Tutup</button>', 'narrow');
+    '<button class="btn sec block" id="nTest" style="margin-top:14px">' + ic('bell') + ' Tes notifikasi HP</button><button class="btn sec block" id="nClose" style="margin-top:8px">Tutup</button>', 'narrow');
+  $('#nTest').onclick = pushDiag;
   var markRead = function () { if (S.events.length) store(seenKey(), S.events[0].ts); renderBell(); };
   $('#nRead').onclick = function () { markRead(); $$('.notif.unread').forEach(function (x) { x.classList.remove('unread'); }); };
   $('#nClose').onclick = function () { markRead(); closeModal(); };
-  if ($('#pushGo')) $('#pushGo').onclick = function () { this.disabled = true; ensurePush(true).then(function (ok) { toast(ok ? '🔔 Notifikasi HP aktif — akan berbunyi walau aplikasi ditutup.' : 'Notifikasi tidak diizinkan.'); showNotifs(); }); };
+  if ($('#pushGo')) $('#pushGo').onclick = pushDiag;
   if ($('#nPerm')) $('#nPerm').onclick = function () {
     Notification.requestPermission().then(function (p) { toast(p === 'granted' ? 'Notifikasi HP aktif.' : 'Notifikasi tidak diizinkan.'); showNotifs(); });
   };
@@ -965,11 +966,13 @@ function showAccount() {
   modal('<div class="row" style="margin-bottom:16px"><div class="avatar" style="width:52px;height:52px;font-size:18px">' + esc(initials(S.user.nama)) + '</div><div><h3>' + esc(S.user.nama) + '</h3><div class="muted small">@' + esc(S.user.username) + ' · ' + esc(S.user.role) + ' · ' + (S.user.outlet === '*' ? 'Semua outlet' : esc(S.user.outlet)) + '</div></div></div>' +
     '<div class="stack"><button class="btn sec block" id="aPw">' + ic('key') + ' Ganti password</button>' +
     '<button class="btn sec block" id="aSync">' + ic('refresh') + ' Muat ulang data</button>' +
+    '<button class="btn sec block" id="aPush">' + ic('bell') + ' Tes notifikasi HP</button>' +
     '<button class="btn bad block" id="aOut">' + ic('out') + ' Keluar</button><button class="btn sec block" id="aX">Tutup</button></div>' +
     '<p class="small muted" style="text-align:center;margin:14px 0 0">Versi aplikasi ' + CONFIG.VERSION + (S.boot && S.boot.version ? ' · server ' + esc(S.boot.version) : '') + '</p>', 'narrow');
   $('#aPw').onclick = function () { showPwModal(false); };
   $('#aSync').onclick = function () { closeModal(); S.rev = null; syncNow().then(function () { toast('Data diperbarui.'); }); };
   $('#aOut').onclick = function () { closeModal(); doLogout(); };
+  $('#aPush').onclick = pushDiag;
   $('#aX').onclick = closeModal;
 }
 
@@ -2439,30 +2442,84 @@ function saveAuthMeta() {
   if (!S.token) return DB.del('meta', 'auth').catch(function () {});
   return DB.put('meta', { id: 'auth', token: S.token, api: CONFIG.API_URL, user: S.user ? S.user.username : '' }).catch(function () {});
 }
-function ensurePush(ask) {
-  if (!pushSupported() || !S.boot || !S.boot.vapidPublic || !S.reg && !navigator.serviceWorker) return Promise.resolve(false);
+/** Daftarkan HP ini untuk push. Hasil: {ok, step, err, endpoint}. */
+function pushRegister(ask, force) {
+  var R = { ok: false, step: '', err: '' };
+  var fail = function (step, err) { R.step = step; R.err = err; return R; };
+  if (!('serviceWorker' in navigator)) return Promise.resolve(fail('dukungan', 'Browser tidak mendukung service worker.'));
+  if (!window.Notification || !window.PushManager) return Promise.resolve(fail('dukungan', isIOS() ? 'iPhone: buka dari ikon "Tambah ke Layar Utama" (iOS 16.4+).' : 'Browser/aplikasi ini belum mendukung push. Pakai Chrome versi terbaru.'));
+  if (!S.boot || !S.boot.vapidPublic) return Promise.resolve(fail('server', 'Server belum versi 2.3 (kunci notifikasi belum ada).'));
   var perm = ask && Notification.permission === 'default' ? Notification.requestPermission() : Promise.resolve(Notification.permission);
   return perm.then(function (p) {
-    if (p !== 'granted') return false;
+    R.perm = p;
+    if (p !== 'granted') return fail('izin', p === 'denied' ? 'Notifikasi DIBLOKIR. Buka Setelan HP → Aplikasi → VTAG Otoklix (atau Chrome) → Notifikasi → Izinkan, lalu coba lagi.' : 'Izin notifikasi belum diberikan.');
     return navigator.serviceWorker.ready.then(function (reg) {
+      var key = b64uToU8(S.boot.vapidPublic);
       return reg.pushManager.getSubscription().then(function (sub) {
-        var key = b64uToU8(S.boot.vapidPublic);
         if (sub && sub.options && sub.options.applicationServerKey) {
           var a = new Uint8Array(sub.options.applicationServerKey), same = a.length === key.length && a.every(function (x, i) { return x === key[i]; });
-          if (!same) return sub.unsubscribe().then(function () { return null; });
+          if (!same || force) return sub.unsubscribe().then(function () { return null; });
         }
         return sub;
-      }).then(function (sub) { return sub || reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key }); });
+      }).then(function (sub) { return sub || reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key }); })
+        .then(function (sub) { return sub; }, function (e) { throw { step: 'langganan', err: (e && (e.name + ': ' + e.message)) || String(e) }; });
     }).then(function (sub) {
       var j = sub.toJSON(), mark = 'vt_push_' + S.user.username;
+      R.endpoint = j.endpoint;
       S.pushOn = true;
-      var seenTs = S.events.length ? S.events[0].ts : '';
-      DB.get('meta', 'pushSeen').then(function (x) { if (!x || x.ts < seenTs) return DB.put('meta', { id: 'pushSeen', ts: seenTs }); }).catch(function () {});
-      saveAuthMeta();
-      if (store(mark) === j.endpoint) return true;
-      return api('pushSubscribe', { endpoint: j.endpoint, keys: j.keys }, navigator.userAgent.slice(0, 120)).then(function () { store(mark, j.endpoint); return true; });
+      markPushSeen(); saveAuthMeta();
+      if (!force && store(mark) === j.endpoint) { R.ok = true; return R; }
+      return api('pushSubscribe', { endpoint: j.endpoint, keys: j.keys }, navigator.userAgent.slice(0, 120)).then(function () { store(mark, j.endpoint); R.ok = true; return R; },
+        function (e) { return fail('daftar server', errMsg(e)); });
     });
-  }).catch(function (e) { console.warn('push', e); return false; });
+  }).catch(function (e) { return fail(e && e.step || 'lainnya', e && e.err || errMsg(e)); });
+}
+function ensurePush(ask) { return pushRegister(ask).then(function (r) { if (!r.ok) console.warn('push', r.step, r.err); return r.ok; }); }
+
+/** Tes lengkap: izin → daftar → server kirim → HP menerima → bunyi. */
+function pushDiag() {
+  var steps = [];
+  var draw = function (done) {
+    modal('<h3>Tes notifikasi HP</h3><div class="small muted" style="margin:4px 0 12px">Memeriksa setiap langkah sampai HP berbunyi.</div>' +
+      steps.map(function (x) { return '<div class="upl row" style="align-items:flex-start"><span class="pill ' + (x.s === 'ok' ? 'done' : x.s === 'run' ? 'pending' : 'revisi') + '">' + ic(x.s === 'ok' ? 'check' : x.s === 'run' ? 'clock' : 'warn', 'sm') + '</span><div style="flex:1;min-width:0"><b>' + esc(x.t) + '</b>' + (x.d ? '<div class="small" style="color:' + (x.s === 'bad' ? 'var(--bad)' : 'var(--muted)') + ';word-break:break-word">' + esc(x.d) + '</div>' : '') + '</div></div>'; }).join('') +
+      (done ? '<div class="stack" style="margin-top:14px"><button class="btn sec block" id="pdCopy">Salin hasil (kirim ke admin)</button><button class="btn block" id="pdX">Tutup</button></div>' : '<div class="spin" style="margin:14px auto 0"></div>'), 'narrow');
+    if (done) {
+      $('#pdX').onclick = closeModal;
+      $('#pdCopy').onclick = function () { copyText('Tes notifikasi VTAG ' + CONFIG.VERSION + ' / server ' + (S.boot && S.boot.version) + '\n' + navigator.userAgent + '\n' + steps.map(function (x) { return (x.s === 'ok' ? '✔ ' : '✘ ') + x.t + (x.d ? ': ' + x.d : ''); }).join('\n'), document.createElement('textarea')); };
+    }
+  };
+  var add = function (t, st, d) { steps.push({ t: t, s: st, d: d || '' }); draw(st === 'bad'); };
+  add('Mendaftarkan HP ini', 'run');
+  pushRegister(true, true).then(function (r) {
+    steps.pop();
+    if (!r.ok) { add('Gagal di langkah: ' + r.step, 'bad', r.err); return; }
+    add('Izin notifikasi', 'ok', 'Diizinkan');
+    add('HP terdaftar di server', 'ok', (r.endpoint || '').replace(/^https:\/\/([^\/]+).*/, '$1'));
+    add('Server mengirim notifikasi tes…', 'run');
+    var got = false, waiter = function (e) { if (e.data && e.data.type === 'sync') got = true; };
+    navigator.serviceWorker.addEventListener('message', waiter);
+    return api('pushTest', r.endpoint).then(function (t) {
+      steps.pop();
+      var res = (t.results || [])[0];
+      if (!res) { add('Server mengirim notifikasi', 'bad', 'Langganan HP ini tidak ditemukan di server.'); return; }
+      if (res.code >= 300) { add('Server mengirim notifikasi', 'bad', 'Ditolak layanan push (' + res.code + '): ' + res.text); return; }
+      add('Server mengirim notifikasi', 'ok', 'Diterima layanan push Google (kode ' + res.code + ')');
+      add('Menunggu HP menerima…', 'run');
+      var t0 = Date.now();
+      return new Promise(function (res2) {
+        var iv = setInterval(function () { if (got || Date.now() - t0 > 20000) { clearInterval(iv); res2(); } }, 300);
+      }).then(function () {
+        navigator.serviceWorker.removeEventListener('message', waiter);
+        steps.pop();
+        if (!got) { add('HP menerima notifikasi', 'bad', 'Tidak sampai dalam 20 detik. Cek: mode hemat baterai / data latar belakang untuk Chrome & VTAG diizinkan, lalu tes lagi.'); return; }
+        add('HP menerima notifikasi', 'ok', 'Push sampai dalam ' + Math.round((Date.now() - t0) / 100) / 10 + ' detik');
+        return navigator.serviceWorker.ready.then(function (reg) {
+          return reg.showNotification('VTAG Otoklix', { body: '🔔 Tes berhasil! Notifikasi akan berbunyi seperti ini walau aplikasi ditutup.', icon: 'icons/icon-192.png', badge: 'icons/icon-192.png', vibrate: [250, 120, 250], tag: 'vt-test', renotify: true });
+        }).then(function () { add('Bunyi / tampil notifikasi', 'ok', 'Jika tidak bunyi: Setelan HP → Notifikasi → VTAG Otoklix → aktifkan Suara & Pop-up.'); },
+          function (e) { add('Bunyi / tampil notifikasi', 'bad', errMsg(e)); });
+      });
+    }, function (e) { steps.pop(); add('Server mengirim notifikasi', 'bad', errMsg(e) + (serverAtLeast('2.3.1') ? '' : ' (server perlu Code.gs 2.3.1)')); });
+  }).then(function () { if (steps.length && steps[steps.length - 1].s !== 'bad') draw(true); });
 }
 function pushOff() {
   if (!S.user) return Promise.resolve();
@@ -2479,14 +2536,14 @@ function pushOff() {
 }
 function pushBanner() {
   if (!S.boot || !S.boot.vapidPublic || !window.Notification) return '';
-  if (pushSupported() && Notification.permission === 'default') return '<div class="msg info" id="pushAsk">' + ic('bell') + '<span><b>Aktifkan notifikasi bunyi di HP</b> supaya tetap tahu ada kasus baru / hasil validasi walau aplikasi ditutup. <button class="btn sm or" id="pushGo" style="margin-top:8px">Aktifkan notifikasi</button></span></div>';
+  if (pushSupported() && (Notification.permission === 'default' || (Notification.permission === 'granted' && !store('vt_push_' + S.user.username)))) return '<div class="msg info" id="pushAsk">' + ic('bell') + '<span><b>Aktifkan notifikasi bunyi di HP</b> supaya tetap tahu ada kasus baru / hasil validasi walau aplikasi ditutup. <button class="btn sm or" id="pushGo" style="margin-top:8px">Aktifkan notifikasi</button></span></div>';
   if (pushSupported() && Notification.permission === 'denied') return '<div class="msg warn">' + ic('bell') + '<span>Notifikasi diblokir. Buka <b>Setelan HP → Aplikasi → VTAG Otoklix → Notifikasi</b> lalu izinkan.</span></div>';
   if (isIOS() && !pushSupported()) return '<div class="msg info">' + ic('bell') + '<span>iPhone: agar notifikasi berbunyi, buka di Safari → Bagikan → <b>Tambah ke Layar Utama</b>, lalu buka dari ikon tersebut.</span></div>';
   return '';
 }
 function bindPushBanner(root) {
   var b = $('#pushGo', root);
-  if (b) b.onclick = function () { b.disabled = true; ensurePush(true).then(function (ok) { toast(ok ? '🔔 Notifikasi HP aktif.' : 'Notifikasi tidak diizinkan.'); renderView(); }); };
+  if (b) b.onclick = function () { pushDiag(); };
 }
 
 /* ================= service worker & update otomatis ================= */
