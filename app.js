@@ -4,7 +4,7 @@
 'use strict';
 
 var CONFIG = {
-  VERSION: '2.3.2',
+  VERSION: '2.3.3',
   API_URL: 'https://script.google.com/macros/s/AKfycbyGcLEZZ2Xm0nYl2gq53Qng-KmOUYSqvCrlwtAfRrxROwIREyGL3JyG9CQPlT_9QBYq1Q/exec',
   POLL_MS: 20000,            // cek data baru tiap 20 detik
   CHUNK: 2359296,            // 9 x 256 KB per potongan upload
@@ -2387,11 +2387,27 @@ function campaignEditor(c, el) {
           '<label class="sw">Wajib<input type="checkbox" class="w"' + (a.wajib ? ' checked' : '') + '></label><button type="button" class="xbtn" data-lx="' + i + '">Hapus</button>' +
           '<input type="text" class="h full" value="' + esc(a.hint || '') + '" placeholder="Petunjuk (opsional), mis. Tampak label part"></div>';
       }).join('') + '<button type="button" class="btn sec sm" id="ceAL">' + ic('plus', 'sm') + ' Tambah dokumen</button>' +
-      '<div id="ceErr" class="msg err hidden"></div><div class="stack" style="margin-top:16px"><button class="btn or block" id="ceS">' + ic('check') + ' Simpan campaign</button><button class="btn sec block" id="ceX">Batal</button></div>';
+      '<div id="ceErr" class="msg err hidden"></div><div class="stack" style="margin-top:16px"><button class="btn or block" id="ceS">' + ic('check') + ' Simpan campaign</button>' +
+      (c && serverAtLeast('2.3.2') ? '<button class="btn bad block" id="ceDel">' + ic('trash') + ' Hapus campaign</button>' : '') + '<button class="btn sec block" id="ceX">Batal</button></div>';
     var sc = $('#ov .sheet') ? $('#ov .sheet').scrollTop : 0;
     modal(h);
     if (sc) $('#ov .sheet').scrollTop = sc;
     $('#ceX').onclick = closeModal;
+    if ($('#ceDel')) $('#ceDel').onclick = function () {
+      grab();
+      var used = rows().filter(function (r) { return r.type === 'Campaign' && r.cmp === c.nama; });
+      var open = used.filter(function (r) { return r.status !== T.DONE; }).length;
+      confirmBox({
+        title: 'Hapus campaign "' + c.nama + '"?',
+        body: 'Campaign hilang dari menu Input mekanik & daftar campaign. ' + (used.length ? used.length + ' kasus yang sudah diinput (' + open + ' belum selesai) TETAP tersimpan & bisa dibuka, divalidasi dan di-export.' : 'Belum ada kasus yang memakai campaign ini.') + ' Jika hanya sementara, cukup matikan "Aktif".',
+        ok: 'Hapus campaign', danger: true, typeWord: 'HAPUS'
+      }).then(function (yes) {
+        if (!yes) return draw();
+        busyModal('Menghapus campaign…');
+        api('deleteCampaign', c.id).then(function (list) { S.boot.campaigns = list; closeModal(); toast('Campaign dihapus.'); renderCampaigns(el); },
+          function (e) { closeModal(); toast(errMsg(e)); });
+      });
+    };
     $('#ceAF').onclick = function () { grab(); def.fields.push({ label: '', type: 'text', wajib: false }); draw(); };
     $('#ceAL').onclick = function () { grab(); def.lampiran.push({ label: '', kind: 'image', wajib: true, hint: '' }); draw(); };
     $$('[data-fx]').forEach(function (b) { b.onclick = function () { grab(); def.fields.splice(+b.dataset.fx, 1); draw(); }; });

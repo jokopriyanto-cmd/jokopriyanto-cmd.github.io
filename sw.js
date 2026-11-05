@@ -1,5 +1,5 @@
 /* Service worker VTAG Otoklix. Ganti VERSION setiap rilis → aplikasi di HP otomatis update. */
-const VERSION = '2.3.2';
+const VERSION = '2.3.3';
 const CACHE = 'vtag-' + VERSION;
 const ASSETS = ['./', 'index.html', 'app.js', 'styles.css', 'manifest.webmanifest',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png', 'icons/apple-touch-icon.png',
