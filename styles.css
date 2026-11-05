@@ -253,3 +253,11 @@ dl.kv dt{color:var(--muted);font-size:13px} dl.kv dd{margin:0;white-space:pre-wr
   .sendbar{bottom:12px}
   .chips{margin:0;padding-left:0;padding-right:0}
 }
+/* v2.3 */
+.cmprow{display:grid;grid-template-columns:1fr auto auto auto;gap:8px;align-items:center;border:1px solid var(--line);border-radius:12px;padding:10px;margin-bottom:8px;background:#fafbfe}
+.cmprow .full{grid-column:1/-1}
+.cmprow select{width:auto;min-width:118px}
+.cmprow .sw{margin:0;white-space:nowrap}
+@media (max-width:520px){.cmprow{grid-template-columns:1fr auto}.cmprow .l{grid-column:1/-1}}
+.todo.chooser{padding:14px}
+.todo.chooser .tt b{font-size:15px}
