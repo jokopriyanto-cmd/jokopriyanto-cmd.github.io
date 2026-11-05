@@ -4,7 +4,7 @@
 'use strict';
 
 var CONFIG = {
-  VERSION: '2.3.1',
+  VERSION: '2.3.2',
   API_URL: 'https://script.google.com/macros/s/AKfycbyGcLEZZ2Xm0nYl2gq53Qng-KmOUYSqvCrlwtAfRrxROwIREyGL3JyG9CQPlT_9QBYq1Q/exec',
   POLL_MS: 20000,            // cek data baru tiap 20 detik
   CHUNK: 2359296,            // 9 x 256 KB per potongan upload
@@ -2443,7 +2443,14 @@ function saveAuthMeta() {
   return DB.put('meta', { id: 'auth', token: S.token, api: CONFIG.API_URL, user: S.user ? S.user.username : '' }).catch(function () {});
 }
 /** Daftarkan HP ini untuk push. Hasil: {ok, step, err, endpoint}. */
+var pushLock = null;
 function pushRegister(ask, force) {
+  if (pushLock) return pushLock.then(function () { return pushRegister(ask, force); });
+  var p = pushRegister_(ask, force);
+  pushLock = p.then(function () { pushLock = null; }, function () { pushLock = null; });
+  return p;
+}
+function pushRegister_(ask, force) {
   var R = { ok: false, step: '', err: '' };
   var fail = function (step, err) { R.step = step; R.err = err; return R; };
   if (!('serviceWorker' in navigator)) return Promise.resolve(fail('dukungan', 'Browser tidak mendukung service worker.'));
@@ -2458,7 +2465,7 @@ function pushRegister(ask, force) {
       return reg.pushManager.getSubscription().then(function (sub) {
         if (sub && sub.options && sub.options.applicationServerKey) {
           var a = new Uint8Array(sub.options.applicationServerKey), same = a.length === key.length && a.every(function (x, i) { return x === key[i]; });
-          if (!same || force) return sub.unsubscribe().then(function () { return null; });
+          if (!same || force) return sub.unsubscribe().then(function () { return sleep(4000); }).then(function () { return null; });
         }
         return sub;
       }).then(function (sub) { return sub || reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key }); })
@@ -2490,35 +2497,54 @@ function pushDiag() {
   };
   var add = function (t, st, d) { steps.push({ t: t, s: st, d: d || '' }); draw(st === 'bad'); };
   add('Mendaftarkan HP ini', 'run');
-  pushRegister(true, true).then(function (r) {
-    steps.pop();
-    if (!r.ok) { add('Gagal di langkah: ' + r.step, 'bad', r.err); return; }
-    add('Izin notifikasi', 'ok', 'Diizinkan');
-    add('HP terdaftar di server', 'ok', (r.endpoint || '').replace(/^https:\/\/([^\/]+).*/, '$1'));
-    add('Server mengirim notifikasi tes…', 'run');
+  var waitRecv = function () {
+    add('Menunggu HP menerima…', 'run');
     var got = false, waiter = function (e) { if (e.data && e.data.type === 'sync') got = true; };
     navigator.serviceWorker.addEventListener('message', waiter);
+    var t0 = Date.now();
+    return new Promise(function (res2) {
+      var iv = setInterval(function () { if (got || Date.now() - t0 > 20000) { clearInterval(iv); res2(); } }, 300);
+    }).then(function () {
+      navigator.serviceWorker.removeEventListener('message', waiter);
+      steps.pop();
+      if (!got) { add('HP menerima notifikasi', 'bad', 'Tidak sampai dalam 20 detik. Cek: mode hemat baterai / data latar belakang untuk Chrome & VTAG diizinkan, lalu tes lagi.'); return; }
+      add('HP menerima notifikasi', 'ok', 'Push sampai dalam ' + Math.round((Date.now() - t0) / 100) / 10 + ' detik');
+      return navigator.serviceWorker.ready.then(function (reg) {
+        return reg.showNotification('VTAG Otoklix', { body: '🔔 Tes berhasil! Notifikasi akan berbunyi seperti ini walau aplikasi ditutup.', icon: 'icons/icon-192.png', badge: 'icons/icon-192.png', vibrate: [250, 120, 250], tag: 'vt-test', renotify: true });
+      }).then(function () { add('Bunyi / tampil notifikasi', 'ok', 'Jika tidak bunyi: Setelan HP → Notifikasi → VTAG Otoklix → aktifkan Suara & Pop-up.'); },
+        function (e) { add('Bunyi / tampil notifikasi', 'bad', errMsg(e)); });
+    });
+  };
+  var test = function (r, attempt) {
+    add('Server mengirim notifikasi tes…', 'run');
     return api('pushTest', r.endpoint).then(function (t) {
       steps.pop();
       var res = (t.results || [])[0];
       if (!res) { add('Server mengirim notifikasi', 'bad', 'Langganan HP ini tidak ditemukan di server.'); return; }
-      if (res.code >= 300) { add('Server mengirim notifikasi', 'bad', 'Ditolak layanan push (' + res.code + '): ' + res.text); return; }
+      if ((res.code === 404 || res.code === 410) && attempt < 2) {
+        add('Langganan lama kedaluwarsa', 'ok', 'Membuat langganan baru' + (attempt ? ' (percobaan ' + (attempt + 1) + ')' : '') + '…');
+        store('vt_push_' + S.user.username, null);
+        return pushRegister(false, true).then(function (r2) {
+          if (!r2.ok) { add('Gagal di langkah: ' + r2.step, 'bad', r2.err); return; }
+          return test(r2, attempt + 1);
+        });
+      }
+      if (res.code >= 300) {
+        return api('pushTest').then(function (all) {
+          var ok = (all.results || []).filter(function (x) { return x.code < 300; }).length;
+          add('Server mengirim notifikasi', 'bad', 'Ditolak layanan push (' + res.code + '): ' + res.text + ' · HP lain akun ini: ' + ok + ' dari ' + (all.results || []).length + ' berhasil.');
+        });
+      }
       add('Server mengirim notifikasi', 'ok', 'Diterima layanan push Google (kode ' + res.code + ')');
-      add('Menunggu HP menerima…', 'run');
-      var t0 = Date.now();
-      return new Promise(function (res2) {
-        var iv = setInterval(function () { if (got || Date.now() - t0 > 20000) { clearInterval(iv); res2(); } }, 300);
-      }).then(function () {
-        navigator.serviceWorker.removeEventListener('message', waiter);
-        steps.pop();
-        if (!got) { add('HP menerima notifikasi', 'bad', 'Tidak sampai dalam 20 detik. Cek: mode hemat baterai / data latar belakang untuk Chrome & VTAG diizinkan, lalu tes lagi.'); return; }
-        add('HP menerima notifikasi', 'ok', 'Push sampai dalam ' + Math.round((Date.now() - t0) / 100) / 10 + ' detik');
-        return navigator.serviceWorker.ready.then(function (reg) {
-          return reg.showNotification('VTAG Otoklix', { body: '🔔 Tes berhasil! Notifikasi akan berbunyi seperti ini walau aplikasi ditutup.', icon: 'icons/icon-192.png', badge: 'icons/icon-192.png', vibrate: [250, 120, 250], tag: 'vt-test', renotify: true });
-        }).then(function () { add('Bunyi / tampil notifikasi', 'ok', 'Jika tidak bunyi: Setelan HP → Notifikasi → VTAG Otoklix → aktifkan Suara & Pop-up.'); },
-          function (e) { add('Bunyi / tampil notifikasi', 'bad', errMsg(e)); });
-      });
+      return waitRecv();
     }, function (e) { steps.pop(); add('Server mengirim notifikasi', 'bad', errMsg(e) + (serverAtLeast('2.3.1') ? '' : ' (server perlu Code.gs 2.3.1)')); });
+  };
+  pushRegister(true, false).then(function (r) {
+    steps.pop();
+    if (!r.ok) { add('Gagal di langkah: ' + r.step, 'bad', r.err); return; }
+    add('Izin notifikasi', 'ok', 'Diizinkan');
+    add('HP terdaftar di server', 'ok', (r.endpoint || '').replace(/^https:\/\/([^\/]+).*/, '$1'));
+    return test(r, 0);
   }).then(function () { if (steps.length && steps[steps.length - 1].s !== 'bad') draw(true); });
 }
 function pushOff() {
