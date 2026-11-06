@@ -4,7 +4,7 @@
 'use strict';
 
 var CONFIG = {
-  VERSION: '2.3.3',
+  VERSION: '2.4.0',
   API_URL: 'https://script.google.com/macros/s/AKfycbyGcLEZZ2Xm0nYl2gq53Qng-KmOUYSqvCrlwtAfRrxROwIREyGL3JyG9CQPlT_9QBYq1Q/exec',
   POLL_MS: 20000,            // cek data baru tiap 20 detik
   CHUNK: 2359296,            // 9 x 256 KB per potongan upload
@@ -112,8 +112,13 @@ var S = {
 var T; // status labels
 function role() { return S.user ? S.user.role : ''; }
 function isAdmin() { return role() === 'admin'; }
-function canInput() { return role() === 'mekanik' || role() === 'admin'; }
-function canValidate() { return role() === 'foreman' || role() === 'admin'; }
+function canInput() { return role() === 'mekanik' || role() === 'admin' || role() === 'mekanik_sw'; }
+function canValidate() { return role() === 'foreman' || role() === 'admin' || role() === 'foreman_sw'; }
+function isSW() { return role() === 'mekanik_sw' || role() === 'foreman_sw'; }
+function isCustomType(t) { return t === 'Campaign' || t === 'Eskalasi'; }
+function isSWOutlet(o) { return /update software/i.test(String(o || '')); }
+function vtagOutlets() { return (S.boot.outlets || []).filter(function (o) { return !isSWOutlet(o); }); }
+function swOutlets() { return (S.boot.outlets || []).filter(isSWOutlet); }
 function coversOutlet(o) { var u = S.user; return u.role === 'admin' || u.outlet === '*' || String(u.outlet).toLowerCase() === String(o).toLowerCase(); }
 
 /* ================= API ================= */
@@ -606,13 +611,16 @@ function showApp() {
 function tabsDef() {
   var t = [{ k: 'home', l: 'Beranda', i: 'home' }];
   var vCount = canValidate() ? pendingForMe().length : 0;
-  if (role() === 'mekanik') {
+  if (role() === 'mekanik' || role() === 'mekanik_sw') {
     t.push({ k: 'input', l: 'Input', i: 'plus', cta: true });
     t.push({ k: 'data', l: 'Data', i: 'list', n: todoCount() });
   } else if (role() === 'foreman') {
     t.push({ k: 'data', l: 'Data', i: 'list' });
     t.push({ k: 'validasi', l: 'Validasi', i: 'check', n: vCount });
     t.push({ k: 'bulk', l: 'Tugaskan', i: 'users' });
+  } else if (role() === 'foreman_sw') {
+    t.push({ k: 'data', l: 'Data', i: 'list' });
+    t.push({ k: 'validasi', l: 'Cek Eskalasi', i: 'check', n: vCount });
   } else if (role() === 'sm') {
     t.push({ k: 'data', l: 'Data', i: 'list' });
     t.push({ k: 'admin', l: 'Kelola', i: 'gear' });
@@ -640,7 +648,7 @@ function renderNav() {
   side.sort(function (a, b) { return (b.cta ? 1 : 0) - (a.cta ? 1 : 0); });
   $('#side').innerHTML = '<img alt="Otoklix" src="icons/logo-otoklix.png">' + side.map(function (t) {
     var on = S.tab === t.k || (S.tab === 'admin' && t.k === 'adm:' + S.adminTab);
-    return '<button data-k="' + t.k + '" class="' + (on ? 'on ' : '') + (t.cta ? 'cta' : '') + '">' + ic(t.i) + '<span>' + (t.cta ? 'Input kasus baru' : esc(t.l)) + '</span>' + (t.n ? '<span class="badge">' + t.n + '</span>' : '') + '</button>';
+    return '<button data-k="' + t.k + '" class="' + (on ? 'on ' : '') + (t.cta ? 'cta' : '') + '">' + ic(t.i) + '<span>' + (t.cta ? (role() === 'mekanik_sw' ? 'Input eskalasi baru' : 'Input kasus baru') : esc(t.l)) + '</span>' + (t.n ? '<span class="badge">' + t.n + '</span>' : '') + '</button>';
   }).join('') + '<div class="ver">Versi ' + CONFIG.VERSION + '</div>';
   $$('#tabs button, #side button').forEach(function (b) {
     b.onclick = function () {
@@ -687,9 +695,13 @@ function renderNetbar() {
 /* ================= data helpers ================= */
 function rows() { return (S.dash && S.dash.rows) || []; }
 function pendingForMe() {
-  return rows().filter(function (r) { return (r.status === T.PENDING || r.status === T.SUBMITTED) && r.by !== S.user.username && coversOutlet(r.outlet); });
+  return rows().filter(function (r) {
+    var st = r.status === T.PENDING || r.status === T.SUBMITTED || (T.ESK_PENDING && r.status === T.ESK_PENDING) || (isAdmin() && T.ESK_SENT && r.status === T.ESK_SENT);
+    return st && r.by !== S.user.username && coversOutlet(r.outlet);
+  });
 }
-function needCheck() { return pendingForMe().filter(function (r) { return r.status === T.PENDING; }); }
+function needCheck() { return pendingForMe().filter(function (r) { return r.status === T.PENDING || (T.ESK_PENDING && r.status === T.ESK_PENDING); }); }
+function eskForAdmin() { return pendingForMe().filter(function (r) { return T.ESK_SENT && r.status === T.ESK_SENT; }); }
 function waitApproval() { return pendingForMe().filter(function (r) { return r.status === T.SUBMITTED; }); }
 function partReady() { return role() === 'partman' ? rows().filter(function (r) { return r.status === T.DONE && r.after === S.boot.after.WAIT; }) : []; }
 function afterWaitForMe() {
@@ -700,8 +712,15 @@ function draftMine() { return rows().filter(function (r) { return r.status === T
 function unsentLocal() { return S.localDrafts.filter(function (d) { return d.state === 'sending' || d.state === 'error'; }); }
 function todoCount() { return revisiMine().length + afterWaitForMe().length + unsentLocal().length; }
 
-function pillClass(st) { return st === T.PENDING ? 'pending' : st === T.SUBMITTED ? 'sub' : st === T.DONE ? 'done' : st === T.REVISI ? 'revisi' : 'draft'; }
-function pillIcon(st) { return st === T.PENDING ? 'clock' : st === T.SUBMITTED ? 'send' : st === T.DONE ? 'check' : st === T.REVISI ? 'undo' : 'edit'; }
+function stKind(st) {
+  if (st === T.PENDING || (T.ESK_PENDING && st === T.ESK_PENDING)) return 'p';
+  if (st === T.SUBMITTED || (T.ESK_SENT && st === T.ESK_SENT)) return 's';
+  if (st === T.DONE || (T.ESK_DONE && st === T.ESK_DONE)) return 'd';
+  if (st === T.REVISI) return 'r';
+  return '';
+}
+function pillClass(st) { return { p: 'pending', s: 'sub', d: 'done', r: 'revisi' }[stKind(st)] || 'draft'; }
+function pillIcon(st) { return { p: 'clock', s: 'send', d: 'check', r: 'undo' }[stKind(st)] || 'edit'; }
 function pill(st) { return '<span class="pill ' + pillClass(st) + '">' + ic(pillIcon(st), 'sm') + esc(st) + '</span>'; }
 function afterPill(a) {
   if (!a) return '';
@@ -728,6 +747,7 @@ function syncNow() {
     if (r.dash) S.dash = r.dash;
     if (r.settings) S.boot.settings = r.settings;
     if (r.campaigns) S.boot.campaigns = r.campaigns;
+    if (r.eskalasi !== undefined) S.boot.eskalasi = r.eskalasi;
     if (r.events) { S.events = r.events; notifyNew(); }
     try { var b = S.boot; b.dash = S.dash; b.events = S.events; b.rev = S.rev; store('vt_boot', JSON.stringify(b)); } catch (e) { /* */ }
     renderNav(); renderBell();
@@ -742,7 +762,7 @@ function renderBell() {
   if (!d) return;
   d.textContent = n > 9 ? '9+' : n; d.classList.toggle('hidden', !n);
 }
-function evIcon(t) { return t === 'validated' || t === 'approved' ? 'check' : t === 'submitted_vf' ? 'send' : t === 'revisi' ? 'undo' : t === 'after_done' ? 'box' : t === 'assigned' ? 'users' : 'inbox'; }
+function evIcon(t) { return t === 'validated' || t === 'approved' ? 'check' : t === 'submitted_vf' ? 'send' : t === 'revisi' ? 'undo' : t === 'after_done' ? 'box' : t === 'assigned' ? 'users' : t === 'forwarded' ? 'send' : t === 'esk_done' ? 'check' : 'inbox'; }
 function markPushSeen() {
   if (!S.events.length) return;
   var ts = S.events[0].ts;
@@ -795,7 +815,7 @@ function renderHome(m) {
   var hr = new Date().getHours(), sal = hr < 11 ? 'Selamat pagi' : hr < 15 ? 'Selamat siang' : hr < 18 ? 'Selamat sore' : 'Selamat malam';
   var h = '<div class="deskgrid"><div>';
   h += '<div class="hero"><h1>' + sal + ', ' + esc(String(u.nama).split(' ')[0]) + ' 👋</h1><p>' + esc(roleName(u.role)) + ' · ' + (u.outlet === '*' ? 'Semua outlet' : esc(u.outlet)) + '</p><div class="acts">' +
-    (canInput() ? '<button class="btn or" data-act="new">' + ic('plus') + ' Input kasus baru</button>' : '') +
+    (canInput() ? '<button class="btn or" data-act="new">' + ic('plus') + (role() === 'mekanik_sw' ? ' Input eskalasi baru' : ' Input kasus baru') + '</button>' : '') +
     (canValidate() && pendingForMe().length ? '<button class="btn white" data-act="val">' + ic('check') + ' ' + pendingForMe().length + ' perlu ditindaklanjuti</button>' : '') +
     (role() === 'foreman' ? '<button class="btn white" data-act="bulk">' + ic('users') + ' Tugaskan kasus (massal)</button>' : '') +
     (role() === 'sm' ? '<button class="btn white" data-act="adm:export">' + ic('download') + ' Export Excel</button><button class="btn white" data-act="adm:users">' + ic('users') + ' Kelola akun</button>' : '') +
@@ -811,14 +831,24 @@ function renderHome(m) {
   draftMine().forEach(function (r) { if (newLocal(r.id)) { todo += todoItem('edit', 'warn', 'Lanjutkan draft', r.vin + ' · ' + r.nopol + ' · ketuk untuk melanjutkan isian', 'new'); return; } todo += todoItem(r.asg ? 'users' : 'edit', 'warn', r.asg ? 'Tugas dari foreman ' + r.asg : 'Draft belum lengkap', r.vin + ' · ' + r.nopol + ' · ketuk untuk lengkapi data & file lalu kirim', 'case:' + r.id); });
   afterWaitForMe().forEach(function (r) { todo += todoItem('box', 'blue', 'Upload dokumentasi after', r.vin + ' · ' + r.nopol, 'after:' + r.id); });
   if (canValidate()) {
-    needCheck().slice(0, 5).forEach(function (r) { todo += todoItem('clock', 'warn', 'Cek data & ajukan ke VinFast', r.vin + ' · ' + r.byName, 'case:' + r.id); });
+    needCheck().slice(0, 5).forEach(function (r) { todo += todoItem('clock', 'warn', r.type === 'Eskalasi' ? 'Cek eskalasi & teruskan ke Admin' : 'Cek data & ajukan ke VinFast', r.vin + ' · ' + r.byName, 'case:' + r.id); });
+    eskForAdmin().slice(0, 5).forEach(function (r) { todo += todoItem('warn', 'bad', 'Eskalasi Update Software', r.vin + ' · ' + r.outlet + ' · sudah dicek foreman', 'case:' + r.id); });
     waitApproval().slice(0, 5).forEach(function (r) { todo += todoItem('send', 'blue', 'Menunggu approval VinFast', r.vin + ' · tandai jika sudah di-approve', 'case:' + r.id); });
   }
   partReady().slice(0, 8).forEach(function (r) { todo += todoItem('box', 'blue', 'Di-approve VinFast · siap part', r.vin + ' · ' + r.nopol + ' · ' + r.outlet, 'case:' + r.id); });
   if (todo) h += '<h2 style="font-size:16px;margin:4px 2px 10px">Perlu tindakan</h2>' + todo;
+  var eskKpi = '<div class="kpis">' + kpi(st.eskPending || 0, 'Menunggu Cek Foreman', 'warn', 'clock', T.ESK_PENDING) +
+    kpi(st.eskSent || 0, 'Diteruskan ke Admin', 'sub', 'send', T.ESK_SENT) + kpi(st.eskDone || 0, 'Eskalasi Selesai', 'ok', 'check', T.ESK_DONE) +
+    kpi(st.revisi, 'Perlu Revisi', 'bad', 'undo', T.REVISI) + '</div>';
+  if (isSW()) h += '<div class="small muted" style="margin:14px 2px 8px">Total ' + st.total + ' eskalasi</div>' + eskKpi;
+  else {
   h += '<div class="small muted" style="margin:14px 2px 8px">Total ' + st.total + ' kasus</div><div class="kpis">' + kpi(st.pending, 'Pending Input VTAG', 'warn', 'clock', T.PENDING) +
     kpi(st.submitted || 0, 'Diajukan ke VinFast', 'sub', 'send', T.SUBMITTED) +
     kpi(st.done, 'Sudah Terinput VTAG', 'ok', 'check', T.DONE) + kpi(st.revisi, 'Perlu Revisi', 'bad', 'undo', T.REVISI) + '</div>';
+  if ((st.eskPending || 0) + (st.eskSent || 0) + (st.eskDone || 0)) h += '<div class="small muted" style="margin:14px 2px 8px">Eskalasi Update Software</div><div class="kpis">' +
+    kpi(st.eskPending || 0, 'Menunggu Cek Foreman', 'warn', 'clock', T.ESK_PENDING) + kpi(st.eskSent || 0, 'Diteruskan ke Admin', 'sub', 'send', T.ESK_SENT) +
+    kpi(st.eskDone || 0, 'Eskalasi Selesai', 'ok', 'check', T.ESK_DONE) + '</div>';
+  }
   h += '</div><div>';
   var outlets = Object.keys(st.byOutlet).sort();
   if (outlets.length > 1 || isAdmin()) {
@@ -871,7 +901,7 @@ function cardsHtml(list) {
     return '<button class="case ' + pillClass(r.status) + '" data-id="' + esc(r.id) + '">' +
       '<div class="r1"><span class="vin mono">' + esc(r.vin) + '</span>' + pill(r.status) + '</div>' +
       '<div class="r2"><span>' + ic('car', 'sm') + esc(r.nopol) + ' · ' + esc(r.model) + '</span><span>' + ic('pin', 'sm') + esc(r.outlet) + '</span></div>' +
-      '<div class="r3"><span>' + (r.type === 'Campaign' ? ic('box', 'sm') + ' <b style="color:var(--orange-d)">' + esc(r.cmp || 'Campaign') + '</b>' : (r.type === 'Electrical' ? ic('zap', 'sm') : ic('tool', 'sm')) + ' ' + esc(r.type || '-')) + ' · ' + esc(r.byName) + (r.asg ? ' <span class="tag">' + ic('users', 'xs') + 'dari ' + esc(r.asg) + '</span>' : '') + '</span><span>' +
+      '<div class="r3"><span>' + (r.type === 'Eskalasi' ? ic('warn', 'sm') + ' <b style="color:var(--bad)">Eskalasi</b>' : r.type === 'Campaign' ? ic('box', 'sm') + ' <b style="color:var(--orange-d)">' + esc(r.cmp || 'Campaign') + '</b>' : (r.type === 'Electrical' ? ic('zap', 'sm') : ic('tool', 'sm')) + ' ' + esc(r.type || '-')) + ' · ' + esc(r.byName) + (r.asg ? ' <span class="tag">' + ic('users', 'xs') + 'dari ' + esc(r.asg) + '</span>' : '') + '</span><span>' +
       afterPill(r.after) + (r.driveDel ? ' <span class="tag">' + ic('trash', 'xs') + 'file dihapus</span>' : '') + ' ' + esc(r.status === T.DRAFT && r.upd ? 'diubah ' + ago(r.upd) : fmtDate(r.ts)) + '</span></div></button>';
   }).join('');
 }
@@ -892,22 +922,35 @@ function renderList(m, mode) {
   if (mode === 'validasi') list = pendingForMe();
   var outlets = Object.keys(S.dash.stats.byOutlet).sort();
   var h = '';
-  if (mode === 'validasi') h += '<div class="hero"><h1>Validasi foreman</h1><p>1) Cek data → ajukan ke sistem VinFast → tandai <b>Diajukan ke VinFast</b>. 2) Setelah di-approve VinFast → tandai <b>Sudah Terinput VTAG</b>.</p></div>';
+  if (mode === 'validasi' && role() === 'foreman_sw') h += '<div class="hero"><h1>Cek eskalasi</h1><p>Cek data & lampiran dari teknisi. Jika benar → <b>teruskan ke Admin Otoklix</b>. Jika belum → minta revisi.</p></div>';
+  else if (mode === 'validasi') h += '<div class="hero"><h1>Validasi foreman</h1><p>1) Cek data → ajukan ke sistem VinFast → tandai <b>Diajukan ke VinFast</b>. 2) Setelah di-approve VinFast → tandai <b>Sudah Terinput VTAG</b>.</p></div>';
   else h += '<div class="hero"><h1>Data kasus</h1><p>' + (S.user.outlet === '*' || isAdmin() ? 'Semua outlet' : esc(S.user.outlet)) + ' · ' + list.length + ' kasus</p></div>';
   h += '<div class="search">' + ic('search') + '<input id="fq" type="search" placeholder="Cari VIN, Nopol, customer, mekanik…" value="' + esc(f.q) + '"></div>';
   if (mode === 'validasi') {
     var vf = f.vstatus || '';
-    h += '<div class="chips" id="vchips">' + [['', 'Semua', list.length], [T.PENDING, 'Perlu dicek', needCheck().length], [T.SUBMITTED, 'Menunggu approval VinFast', waitApproval().length]]
+    var vc = role() === 'foreman_sw' ? [['', 'Semua', list.length]] : [['', 'Semua', list.length], [T.PENDING, 'Perlu dicek', list.filter(function (r) { return r.status === T.PENDING; }).length], [T.SUBMITTED, 'Menunggu approval VinFast', waitApproval().length]];
+    if (T.ESK_PENDING && (isSW() || list.some(function (r) { return r.type === 'Eskalasi'; }))) {
+      vc.push([T.ESK_PENDING, role() === 'foreman_sw' ? 'Perlu dicek' : 'Eskalasi: cek foreman', list.filter(function (r) { return r.status === T.ESK_PENDING; }).length]);
+      if (isAdmin()) vc.push([T.ESK_SENT, 'Eskalasi ke Admin', eskForAdmin().length]);
+    }
+    h += '<div class="chips" id="vchips">' + vc
       .map(function (c) { return '<button class="chip' + (vf === c[0] ? ' on' : '') + '" data-s="' + esc(c[0]) + '">' + c[1] + '<b>' + c[2] + '</b></button>'; }).join('') + '</div>';
   }
   if (mode !== 'validasi') {
     var cnt = function (fn) { return list.filter(fn).length; };
-    var chips = [['', 'Semua', list.length], [T.PENDING, 'Pending', cnt(function (r) { return r.status === T.PENDING; })],
-      [T.SUBMITTED, 'Diajukan VinFast', cnt(function (r) { return r.status === T.SUBMITTED; })],
-      [T.DONE, 'Sudah', cnt(function (r) { return r.status === T.DONE; })], [T.REVISI, 'Revisi', cnt(function (r) { return r.status === T.REVISI; })],
+    var by = function (st) { return cnt(function (r) { return r.status === st; }); };
+    var chips;
+    if (isSW()) chips = [['', 'Semua', list.length], [T.ESK_PENDING, 'Menunggu cek', by(T.ESK_PENDING)], [T.ESK_SENT, 'Diteruskan ke Admin', by(T.ESK_SENT)],
+      [T.ESK_DONE, 'Selesai', by(T.ESK_DONE)], [T.REVISI, 'Revisi', by(T.REVISI)], [T.DRAFT, 'Draft', by(T.DRAFT)]];
+    else {
+    chips = [['', 'Semua', list.length], [T.PENDING, 'Pending', by(T.PENDING)],
+      [T.SUBMITTED, 'Diajukan VinFast', by(T.SUBMITTED)],
+      [T.DONE, 'Sudah', by(T.DONE)], [T.REVISI, 'Revisi', by(T.REVISI)],
       ['after', 'Menunggu after', cnt(function (r) { return r.after === S.boot.after.WAIT; })]];
-    if (role() !== 'partman') chips.push([T.DRAFT, 'Draft', cnt(function (r) { return r.status === T.DRAFT; })]);
+    if (role() !== 'partman') chips.push([T.DRAFT, 'Draft', by(T.DRAFT)]);
     if (campaignsActive().length || list.some(function (r) { return r.type === 'Campaign'; })) chips.push(['campaign', 'Campaign', cnt(function (r) { return r.type === 'Campaign'; })]);
+    if (list.some(function (r) { return r.type === 'Eskalasi'; })) chips.push(['eskalasi', 'Eskalasi', cnt(function (r) { return r.type === 'Eskalasi'; })]);
+    }
     h += '<div class="chips" id="chips">' + chips.map(function (c) { return '<button class="chip' + (f.status === c[0] ? ' on' : '') + '" data-s="' + esc(c[0]) + '">' + c[1] + '<b>' + c[2] + '</b></button>'; }).join('') + '</div>';
     if (outlets.length > 1) h += '<select class="slim" id="fo"><option value="">Semua outlet</option>' + outlets.map(function (o) { return '<option' + (f.outlet === o ? ' selected' : '') + '>' + esc(o) + '</option>'; }).join('') + '</select>';
   }
@@ -920,6 +963,7 @@ function renderList(m, mode) {
       if (mode !== 'validasi') {
         if (f.status === 'after') { if (r.after !== S.boot.after.WAIT) return false; }
         else if (f.status === 'campaign') { if (r.type !== 'Campaign') return false; }
+        else if (f.status === 'eskalasi') { if (r.type !== 'Eskalasi') return false; }
         else if (f.status && r.status !== f.status) return false;
         if (f.outlet && r.outlet !== f.outlet) return false;
       }
@@ -927,7 +971,7 @@ function renderList(m, mode) {
       return true;
     });
     var el = $('#list');
-    if (!l.length) { el.innerHTML = '<div class="empty">' + ic(mode === 'validasi' ? 'check' : 'inbox') + '<div>' + (mode === 'validasi' ? 'Tidak ada kasus yang menunggu validasi. 👍' : 'Tidak ada data.') + '</div></div>'; return; }
+    if (!l.length) { el.innerHTML = '<div class="empty">' + ic(mode === 'validasi' ? 'check' : 'inbox') + '<div>' + (mode === 'validasi' ? (role() === 'foreman_sw' ? 'Tidak ada eskalasi yang perlu dicek. 👍' : 'Tidak ada kasus yang menunggu validasi. 👍') : 'Tidak ada data.') + '</div></div>'; return; }
     el.innerHTML = isDesk() ? tableHtml(l) : cardsHtml(l);
     bindCaseClicks(el);
   };
@@ -1043,19 +1087,21 @@ function renderCase(d) {
   if (F.viewOnly) h += '<div class="msg info">' + ic('eye') + '<span>Akses Partman: lihat saja. Kode part ada di bagian Dokumentasi After Penggantian.</span></div>';
   if (c.Status === T.DONE && c.AfterStatus === A.WAIT && F.canAfter) h += '<div class="msg info">' + ic('box') + '<span>Kasus sudah divalidasi. Silakan upload <b>Dokumentasi After Penggantian</b>.</span></div>';
   h += '<div class="deskgrid"><div>';
-  var isCmp = c.CaseType === 'Campaign';
+  var isCmp = isCustomType(c.CaseType), isEsk = c.CaseType === 'Eskalasi';
+  if (isEsk && c.Status === T.ESK_SENT) h += '<div class="msg info">' + ic('send') + '<span>Sudah dicek foreman <b>' + esc(c.ValidatedBy) + '</b> · ' + esc(fmtDT(c.ValidatedAt)) + ' dan diteruskan ke <b>Admin Otoklix</b>.</span></div>';
+  if (isEsk && c.ApprovedAt) h += '<div class="msg ok">' + ic('check') + '<span><b>Eskalasi selesai</b> · ditindaklanjuti ' + esc(c.ApprovedBy) + ' · ' + esc(fmtDT(c.ApprovedAt)) + '</span></div>';
   if (c.Status === T.DRAFT && c.AssignedBy) h += '<div class="msg info">' + ic('users') + '<span>Ditugaskan oleh foreman <b>' + esc(c.AssignedBy) + '</b> ke ' + esc(c.InputByName) + '.</span></div>';
   if (c.Status === T.DRAFT && c.InputBy !== S.user.username) h += '<div class="msg warn">' + ic('edit') + '<span>Draft masih dikerjakan ' + esc(c.InputByName) + ' · terakhir diubah ' + esc(ago(c.UpdatedAt)) + '.</span></div>';
   if (isCmp) {
     var cd = []; try { cd = JSON.parse(c.CampaignData || '[]'); } catch (x) { /* */ }
-    h += '<div class="sec-t">' + ic('box') + 'Campaign</div><dl class="kv">' + kv('Campaign', c.CampaignName) + cd.map(function (x) { return kv(x.label, x.value); }).join('') + '</dl>';
+    h += '<div class="sec-t">' + ic(isEsk ? 'warn' : 'box') + (isEsk ? 'Data Eskalasi' : 'Campaign') + '</div><dl class="kv">' + (isEsk ? '' : kv('Campaign', c.CampaignName)) + cd.map(function (x) { return kv(x.label, x.value); }).join('') + '</dl>';
     h += '<div class="sec-t">' + ic('car') + 'Kendaraan</div><dl class="kv">' + kv('Workshop', c.Outlet) + kv('Nopol', c.Nopol) + kv('Model', c.Model) + kv('Customer', c.Customer) + kv('Diinput', c.InputByName) + '</dl>';
   } else {
   h += '<div class="sec-t">' + ic('car') + 'Kendaraan</div><dl class="kv">' + kv('Workshop', c.Outlet) + kv('Nopol', c.Nopol) + kv('Model', c.Model) + kv('ODO', c.ODO) + kv('Customer', c.Customer) + kv('Failure date', fmtDate(c.FailureDate)) + kv('Jenis kasus', c.CaseType) + kv('Diinput', c.InputByName) + '</dl>';
   h += '<div class="sec-t">' + ic('tool') + 'Investigasi</div><dl class="kv">' + kv('Feedback', c.Feedback) + '<dt>Action taken</dt><dd>' + (steps.join('') || '-') + '</dd>' + kv('Rootcause', c.Rootcause) + kv('Corrective', c.Corrective) + kv('Remarks', c.Remarks) + '</dl>';
   }
   h += '</div><div>';
-  h += '<div class="sec-t">' + ic('clip') + (isCmp ? 'Dokumentasi Campaign' : 'Mandatory Data VTAG') + '</div><div class="files">' + filesBlock(d.before, d.files, 'before') + '</div>';
+  h += '<div class="sec-t">' + ic('clip') + (isEsk ? 'Dokumentasi Eskalasi' : isCmp ? 'Dokumentasi Campaign' : 'Mandatory Data VTAG') + '</div><div class="files">' + filesBlock(d.before, d.files, 'before') + '</div>';
   if (!isCmp && (c.Status === T.DONE || c.AfterStatus)) {
     h += '<div class="sec-t">' + ic('box') + 'Dokumentasi After Penggantian</div>';
     if (c.AfterPartLamaNo || c.AfterPartBaruNo || c.AfterNote) h += '<dl class="kv" style="margin-bottom:8px">' + kv('Kode part lama', c.AfterPartLamaNo) + kv('Kode part baru', c.AfterPartBaruNo) + (c.AfterNote ? kv('Catatan', c.AfterNote) : '') + '</dl>';
@@ -1077,6 +1123,18 @@ function renderCase(d) {
       '<label>No. VTAG / tiket VinFast <span class="opt">(opsional)</span></label><input type="text" id="vref" value="' + esc(c.VinfastRef || '') + '" style="margin-bottom:10px">' +
       '<textarea id="vnote" placeholder="Catatan (wajib jika ditolak VinFast)"></textarea>' +
       '<div id="verr" class="msg err hidden"></div><div class="stack" style="margin-top:10px"><button class="btn ok block" id="bOk">' + ic('check') + ' Sudah di-approve VinFast → Sudah Terinput VTAG</button><button class="btn bad block" id="bRev">' + ic('undo') + ' Ditolak VinFast → kembalikan ke mekanik</button></div>';
+  }
+  if (F.canForward) {
+    h += '<div class="sec-t">' + ic('shield') + 'Cek foreman Update Software</div>' +
+      '<div class="small muted" style="margin:-4px 0 8px">Cek data & lampiran eskalasi. Jika sudah benar, teruskan ke Administrator Otoklix.</div>' +
+      '<textarea id="vnote" placeholder="Catatan untuk admin / mekanik (wajib jika minta revisi)"></textarea>' +
+      '<div id="verr" class="msg err hidden"></div><div class="stack" style="margin-top:10px"><button class="btn block" id="bOk">' + ic('send') + ' Data benar → teruskan ke Admin Otoklix</button><button class="btn bad block" id="bRev">' + ic('undo') + ' Minta revisi ke mekanik</button></div>';
+  }
+  if (F.canFinish) {
+    h += '<div class="sec-t">' + ic('shield') + 'Tindak lanjut Admin Otoklix</div>' +
+      '<div class="small muted" style="margin:-4px 0 8px">Eskalasi sudah dicek foreman. Tandai selesai setelah ditindaklanjuti, atau kembalikan ke mekanik.</div>' +
+      '<textarea id="vnote" placeholder="Catatan tindak lanjut (wajib jika dikembalikan)"></textarea>' +
+      '<div id="verr" class="msg err hidden"></div><div class="stack" style="margin-top:10px"><button class="btn ok block" id="bOk">' + ic('check') + ' Tandai eskalasi selesai</button><button class="btn bad block" id="bRev">' + ic('undo') + ' Kembalikan ke mekanik (revisi)</button></div>';
   }
   h += '<div class="stack" style="margin-top:16px">';
   if (F.canAfter) h += '<button class="btn or block" id="bAfter">' + ic('box') + (c.AfterStatus === A.DONE ? ' Perbarui Dokumentasi After' : ' Upload Dokumentasi After') + '</button>';
@@ -1115,7 +1173,7 @@ function renderCase(d) {
         }, function (e) { closeModal(); toast(errMsg(e)); });
       });
   };
-  if (F.canValidate || F.canApprove) {
+  if (F.canValidate || F.canApprove || F.canForward || F.canFinish) {
     var goV = function (decision) {
       var note = $('#vnote').value, er = $('#verr'), ref = $('#vref') ? $('#vref').value : '';
       er.classList.add('hidden');
@@ -1126,15 +1184,15 @@ function renderCase(d) {
       api('validateCase', c.CaseID, decision, note, ref).then(function () {
         if (decision === 'valid') decision = 'approve';
         closeModal();
-        toast(decision === 'submit' ? '➜ Ditandai: Diajukan ke VinFast' : decision === 'approve' ? '✔ Sudah Terinput VTAG' : '↩ Dikembalikan ke mekanik untuk revisi');
-        markLocal(c.CaseID, decision === 'submit' ? { status: T.SUBMITTED } : decision === 'approve' ? { status: T.DONE, after: d.after.length ? A.WAIT : '' } : { status: T.REVISI });
+        toast(decision === 'submit' ? '➜ Ditandai: Diajukan ke VinFast' : decision === 'approve' ? '✔ Sudah Terinput VTAG' : decision === 'forward' ? '➜ Diteruskan ke Admin Otoklix' : decision === 'done' ? '✔ Eskalasi selesai' : '↩ Dikembalikan ke mekanik untuk revisi');
+        markLocal(c.CaseID, decision === 'submit' ? { status: T.SUBMITTED } : decision === 'approve' ? { status: T.DONE, after: d.after.length ? A.WAIT : '' } : decision === 'forward' ? { status: T.ESK_SENT } : decision === 'done' ? { status: T.ESK_DONE } : { status: T.REVISI });
         S.rev = null; syncNow();
       }, function (e) {
         er.innerHTML = ic('warn') + '<span>' + esc(errMsg(e)) + '</span>'; er.classList.remove('hidden');
         $('#bOk').disabled = $('#bRev').disabled = false;
       });
     };
-    $('#bOk').onclick = function () { goV(F.canApprove ? 'approve' : 'submit'); };
+    $('#bOk').onclick = function () { goV(F.canForward ? 'forward' : F.canFinish ? 'done' : F.canApprove ? 'approve' : 'submit'); };
     $('#bRev').onclick = function () { goV('revisi'); };
   }
 }
@@ -1225,7 +1283,8 @@ function openEditForm(cd) {
       d.v = { outlet: c.Outlet, nopol: c.Nopol, vin: c.VIN, customer: c.Customer, failureDate: c.FailureDate, odo: c.ODO, model: c.Model, caseType: c.CaseType, feedback: c.Feedback, steps: steps, rootcause: c.Rootcause, corrective: c.Corrective, remarks: c.Remarks, campaignId: c.CampaignID || '', cdata: {} };
     }
     d.chosen = true;
-    if (c.CaseType === 'Campaign') {
+    if (isCustomType(c.CaseType)) {
+      if (c.CaseType === 'Eskalasi') d.v.campaignId = 'ESKALASI';
       var cdl = []; try { cdl = JSON.parse(c.CampaignData || '[]'); } catch (x) { /* */ }
       if (!Object.keys(d.v.cdata || {}).length) { d.v.cdata = {}; cdl.forEach(function (x) { d.v.cdata[x.id] = x.value; }); }
       d.cmpDef = { id: c.CampaignID, nama: c.CampaignName, fields: cdl.map(function (x) { return { id: x.id, label: x.label, type: 'text', wajib: false }; }),
@@ -1266,8 +1325,9 @@ function renderForm(m) {
   var F = S.form;
   if (F.state === 'sending' || (F.state === 'error' && Sender.active[F.id])) return renderSendingView(m, F);
   if (F.kind === 'after') return renderAfterForm(m, F);
-  if (!F.editOf && !F.chosen && !draftHasContent(F) && campaignsActive().length) return renderChooser(m, F);
-  if (F.v.caseType === 'Campaign') return renderCampaignForm(m, F);
+  if (!F.editOf && !F.chosen && !draftHasContent(F) && campaignsActive().length && role() !== 'mekanik_sw') return renderChooser(m, F);
+  if (role() === 'mekanik_sw' && !F.editOf && F.v.caseType !== 'Eskalasi') { F.v.caseType = 'Eskalasi'; F.v.campaignId = 'ESKALASI'; F.v.cdata = F.v.cdata || {}; F.chosen = true; }
+  if (isCustomType(F.v.caseType)) return renderCampaignForm(m, F);
   var v = F.v, b = S.boot, lockOutlet = !isAdmin() && S.user.outlet !== '*';
   var adminEdit = F.editOf && isAdmin() && F.caseStatus && F.caseStatus !== T.DRAFT && F.caseStatus !== T.REVISI;
   var h = '<div class="form-wrap"><form id="frm" autocomplete="off" novalidate>';
@@ -1281,7 +1341,7 @@ function renderForm(m) {
   h += '<div class="card"><h2><span class="hic num">1</span>Data kendaraan</h2><div class="stack">' +
     '<div><label>Dealer / Workshop Name <span class="req">*</span></label>' +
     (lockOutlet ? '<input type="text" id="f_outlet" value="' + esc(v.outlet) + '" readonly style="background:var(--gray-bg)">' :
-      '<select id="f_outlet"><option value="">Pilih outlet…</option>' + b.outlets.map(function (o) { return '<option' + (v.outlet === o ? ' selected' : '') + '>' + esc(o) + '</option>'; }).join('') + '</select>') + '</div>' +
+      '<select id="f_outlet"><option value="">Pilih outlet…</option>' + (v.caseType === 'Eskalasi' ? swOutlets() : vtagOutlets()).map(function (o) { return '<option' + (v.outlet === o ? ' selected' : '') + '>' + esc(o) + '</option>'; }).join('') + '</select>') + '</div>' +
     '<div><label>VIN <span class="req">*</span></label><input type="text" id="f_vin" value="' + esc(v.vin) + '" placeholder="17 karakter" maxlength="17" autocapitalize="characters" autocorrect="off" spellcheck="false" class="mono"><div class="small muted" id="vinc" style="margin-top:4px"></div></div>' +
     '<div class="two"><div><label>Nopol <span class="req">*</span></label><input type="text" id="f_nopol" value="' + esc(v.nopol) + '" placeholder="B 1234 XYZ" autocapitalize="characters"></div>' +
     '<div><label>Model <span class="req">*</span></label><input type="text" id="f_model" list="dlModel" value="' + esc(v.model) + '" placeholder="VFe34"><datalist id="dlModel">' + b.models.map(function (o) { return '<option value="' + esc(o) + '">'; }).join('') + '</datalist></div></div>' +
@@ -1380,15 +1440,15 @@ function collect() {
   v.outlet = val('f_outlet', v.outlet); v.nopol = val('f_nopol', v.nopol); v.vin = val('f_vin', v.vin); v.odo = val('f_odo', v.odo); v.model = val('f_model', v.model);
   v.failureDate = val('f_date', v.failureDate); v.customer = val('f_customer', v.customer); v.feedback = val('f_feedback', v.feedback);
   v.rootcause = val('f_root', v.rootcause); v.corrective = val('f_corr', v.corrective); v.remarks = val('f_rem', v.remarks);
-  var r = document.querySelector('input[name=ctype]:checked'); if (v.caseType !== 'Campaign') v.caseType = r ? r.value : v.caseType;
+  var r = document.querySelector('input[name=ctype]:checked'); if (!isCustomType(v.caseType)) v.caseType = r ? r.value : v.caseType;
   $$('[data-step]').forEach(function (i) { v.steps[+i.dataset.step] = i.value; });
-  if (v.caseType === 'Campaign') { v.cdata = v.cdata || {}; $$('[data-cf]').forEach(function (i) { v.cdata[i.dataset.cf] = i.value; }); }
+  if (isCustomType(v.caseType)) { v.cdata = v.cdata || {}; $$('[data-cf]').forEach(function (i) { v.cdata[i.dataset.cf] = i.value; }); }
 }
 
 function formItems() {
   var F = S.form;
   if (F.kind === 'after') return itemsFor('after', F.v.caseType, F.v.model);
-  if (F.v.caseType === 'Campaign') return cmpItems(cmpDef(F));
+  if (isCustomType(F.v.caseType)) return cmpItems(cmpDef(F));
   return F.v.caseType ? itemsFor('lampiran', F.v.caseType, F.v.model) : [];
 }
 
@@ -1449,7 +1509,7 @@ function pickButtons(a) {
 
 function itemByKey(key) {
   var f = (S.boot.settings || []).filter(function (i) { return i.key === key; })[0];
-  if (!f && S.form && S.form.v && S.form.v.caseType === 'Campaign') f = cmpItems(cmpDef(S.form)).filter(function (i) { return i.key === key; })[0];
+  if (!f && S.form && S.form.v && isCustomType(S.form.v.caseType)) f = cmpItems(cmpDef(S.form)).filter(function (i) { return i.key === key; })[0];
   return f || { key: key, label: key, kind: 'any' };
 }
 
@@ -1557,7 +1617,7 @@ function submitForm(ev, partial) {
   need(/^[A-HJ-NPR-Z0-9]{17}$/i.test(v.vin), 'f_vin', 'VIN', 'VIN harus 17 karakter (tanpa huruf I, O, Q)');
   need(!!v.nopol.trim(), 'f_nopol', 'Nopol');
   need(!!v.model.trim(), 'f_model', 'Model');
-  var isCmp = v.caseType === 'Campaign';
+  var isCmp = isCustomType(v.caseType);
   if (isCmp) {
     need(!!v.customer.trim(), 'f_customer', 'Customer');
     var cdef = cmpDef(F);
@@ -1884,6 +1944,7 @@ function renderAdmin(m) {
   if (S.adminTab === 'settings') renderSettings(el);
   else if (S.adminTab === 'export') renderExport(el);
   else if (S.adminTab === 'campaign') renderCampaigns(el);
+  else if (S.adminTab === 'eskalasi') renderEskForm(el);
   else if (S.adminTab === 'bulk') renderBulk(el);
   else renderUsers(el);
 }
@@ -1916,7 +1977,7 @@ function renderUsers(el) {
 
 function userModal(u, el) {
   var isNew = !u; u = u || { username: '', nama: '', role: 'mekanik', outlet: isAdmin() || S.user.outlet === '*' ? '' : S.user.outlet, aktif: true };
-  var roles = isAdmin() ? ['mekanik', 'foreman', 'partman', 'sm', 'admin'] : ['mekanik', 'foreman', 'partman'];
+  var roles = isAdmin() ? ['mekanik', 'foreman', 'partman', 'mekanik_sw', 'foreman_sw', 'sm', 'admin'] : ['mekanik', 'foreman', 'partman', 'mekanik_sw', 'foreman_sw'];
   var outs = isAdmin() || S.user.outlet === '*' ? S.boot.outlets : [S.user.outlet];
   var canAll = isAdmin() || S.user.outlet === '*';
   modal('<h3>' + (isNew ? 'Tambah pengguna' : 'Ubah ' + esc(u.username)) + '</h3><div class="stack" style="margin-top:14px">' +
@@ -1955,7 +2016,7 @@ function bulkModal(el) {
   modal('<h3>Tambah banyak pengguna</h3>' +
     '<p class="muted small" style="margin:6px 0 12px">Tempel daftar dari Excel / Google Sheets. <b>Satu baris = satu orang.</b> Kolom: <b>Nama</b>, Username, Outlet, Role, Password. Hanya Nama yang wajib — username dibuat dari nama, password acak.</p>' +
     '<div class="two"><div><label>Outlet default</label><select id="bo"><option value="">Pilih outlet…</option>' + (isAdmin() || S.user.outlet === '*' ? S.boot.outlets : [S.user.outlet]).map(function (o) { return '<option>' + esc(o) + '</option>'; }).join('') + '</select></div>' +
-    '<div><label>Role default</label><select id="br"><option>mekanik</option><option>foreman</option><option>partman</option>' + (isAdmin() ? '<option value="sm">Service Manager</option>' : '') + '</select></div></div>' +
+    '<div><label>Role default</label><select id="br"><option>mekanik</option><option>foreman</option><option>partman</option><option value="mekanik_sw">Mekanik Update Software</option><option value="foreman_sw">Foreman Update Software</option>' + (isAdmin() ? '<option value="sm">Service Manager</option>' : '') + '</select></div></div>' +
     '<label style="margin-top:12px">Daftar pengguna</label><textarea id="bt" style="min-height:170px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:14px" placeholder="Budi Santoso&#10;Andi Pratama&#9;andi.p&#9;Otoklix Joglo"></textarea>' +
     '<div class="small muted" style="margin-top:6px">Maks. 300 baris. Username yang sudah ada dilewati. Pengguna baru wajib ganti password saat login pertama.</div>' +
     '<div id="berr" class="msg err hidden"></div><div class="stack" style="margin-top:14px"><button class="btn block" id="bgo">' + ic('users') + ' Buat akun</button><button class="btn sec block" id="bx">Batal</button></div>', 'narrow');
@@ -2023,15 +2084,15 @@ function renderSettings(el) {
 
 /* ================= v2.3: peran & menu kelola ================= */
 function isManager() { return role() === 'admin' || role() === 'sm'; }
-function roleName(r) { return { mekanik: 'Mekanik', foreman: 'Foreman', partman: 'Partman', sm: 'Service Manager', admin: 'Admin' }[r] || r; }
+function roleName(r) { return { mekanik: 'Mekanik', foreman: 'Foreman', partman: 'Partman', sm: 'Service Manager', admin: 'Admin', mekanik_sw: 'Mekanik Update Software', foreman_sw: 'Foreman Update Software' }[r] || r; }
 function serverAtLeast(v) { return !!(S.boot && S.boot.version && S.boot.version >= v); }
 function adminTabs() {
   var t = [['users', 'Pengguna', 'users'], ['settings', 'Pengaturan', 'gear'], ['export', 'Export Excel', 'download']];
-  if (isAdmin()) { t.push(['campaign', 'Campaign', 'box']); t.push(['bulk', 'Input massal', 'list']); }
+  if (isAdmin()) { t.push(['campaign', 'Campaign', 'box']); t.push(['eskalasi', 'Form Eskalasi', 'warn']); t.push(['bulk', 'Input massal', 'list']); }
   return t;
 }
 function draftsAll() { return rows().filter(function (r) { return r.status === T.DRAFT; }); }
-function canMonitorDrafts() { return role() === 'foreman' || role() === 'sm' || isAdmin(); }
+function canMonitorDrafts() { return role() === 'foreman' || role() === 'foreman_sw' || role() === 'sm' || isAdmin(); }
 
 /* ================= v2.3: file Excel (.xlsx) tanpa library ================= */
 var CRC_T = null;
@@ -2169,13 +2230,13 @@ function readXlsx(file) {
 function renderExport(el) {
   var f = S.exp || (S.exp = { from: '', to: '', outlet: '', status: '', jenis: '' });
   var outlets = isAdmin() || S.user.outlet === '*' ? S.boot.outlets : [S.user.outlet];
-  var st = [T.DRAFT, T.PENDING, T.SUBMITTED, T.DONE, T.REVISI];
+  var st = [T.DRAFT, T.PENDING, T.SUBMITTED, T.DONE, T.REVISI, T.ESK_PENDING, T.ESK_SENT, T.ESK_DONE].filter(Boolean);
   el.innerHTML = '<div class="card"><h2><span class="hic">' + ic('download') + '</span>Export / tarik data ke Excel</h2>' +
     '<div class="small muted" style="margin:-6px 0 12px">Semua kolom yang sudah diinput (data kendaraan, investigasi, status VinFast, kode part, link folder Drive). Kosongkan filter untuk menarik semua data.</div>' +
     '<div class="stack"><div class="two"><div><label>Dari tanggal input</label><input type="date" id="xf" value="' + esc(f.from) + '"></div><div><label>Sampai</label><input type="date" id="xt" value="' + esc(f.to) + '"></div></div>' +
     '<div class="two"><div><label>Outlet</label><select id="xo"><option value="">Semua outlet</option>' + outlets.map(function (o) { return '<option' + (f.outlet === o ? ' selected' : '') + '>' + esc(o) + '</option>'; }).join('') + '</select></div>' +
     '<div><label>Status</label><select id="xs"><option value="">Semua status</option>' + st.map(function (s) { return '<option' + (f.status === s ? ' selected' : '') + '>' + esc(s) + '</option>'; }).join('') + '</select></div></div>' +
-    '<div><label>Jenis</label><select id="xj"><option value="">VTAG & Campaign</option><option value="vtag"' + (f.jenis === 'vtag' ? ' selected' : '') + '>VTAG (Electrical / Mechanical)</option><option value="campaign"' + (f.jenis === 'campaign' ? ' selected' : '') + '>Campaign</option></select></div>' +
+    '<div><label>Jenis</label><select id="xj"><option value="">Semua jenis</option><option value="vtag"' + (f.jenis === 'vtag' ? ' selected' : '') + '>VTAG (Electrical / Mechanical)</option><option value="campaign"' + (f.jenis === 'campaign' ? ' selected' : '') + '>Campaign</option>' + (T.ESK_PENDING ? '<option value="eskalasi"' + (f.jenis === 'eskalasi' ? ' selected' : '') + '>Eskalasi Update Software</option>' : '') + '</select></div>' +
     '<div class="chips" style="margin:0">' + [['Hari ini', 0], ['7 hari', 7], ['Bulan ini', 'm'], ['Semua', null]].map(function (q, i) { return '<button class="chip" data-q="' + i + '">' + q[0] + '</button>'; }).join('') + '</div>' +
     '</div><div id="xerr" class="msg err hidden"></div><button class="btn or block" id="xgo" style="margin-top:14px">' + ic('download') + ' Download Excel</button></div>';
   var quick = [0, 7, 'm', null];
@@ -2196,10 +2257,10 @@ function renderExport(el) {
     apiRetry('exportCases', f).then(function (list) {
       if (!list.length) { toast('Tidak ada data untuk filter ini.'); return; }
       var keys = Object.keys(list[0]);
-      var wide = { 'Customer Feedback': 40, 'Action Taken': 45, 'Rootcause': 35, 'Corrective Action': 35, 'Remarks': 30, 'Data Campaign': 40, 'Folder Drive': 45, 'Catatan Foreman': 30, 'VIN': 22, 'Status': 24 };
+      var wide = { 'Customer Feedback': 40, 'Action Taken': 45, 'Rootcause': 35, 'Corrective Action': 35, 'Remarks': 30, 'Data Campaign / Eskalasi': 40, 'Folder Drive': 45, 'Catatan Foreman': 30, 'VIN': 22, 'Status': 24 };
       var data = [keys].concat(list.map(function (r) { return keys.map(function (k) { return k === 'Jumlah File' ? +r[k] || 0 : r[k]; }); }));
       // ringkasan per outlet & status
-      var sum = {}, sts = [T.DRAFT, T.PENDING, T.SUBMITTED, T.DONE, T.REVISI];
+      var sum = {}, sts = [T.DRAFT, T.PENDING, T.SUBMITTED, T.DONE, T.REVISI, T.ESK_PENDING, T.ESK_SENT, T.ESK_DONE].filter(Boolean);
       list.forEach(function (r) { var o = sum[r.Outlet] || (sum[r.Outlet] = {}); o[r.Status] = (o[r.Status] || 0) + 1; o._t = (o._t || 0) + 1; });
       var ring = [['Outlet'].concat(sts, ['Total'])].concat(Object.keys(sum).sort().map(function (o) { return [o].concat(sts.map(function (s) { return sum[o][s] || 0; }), [sum[o]._t]); }));
       var blob = makeXlsx([
@@ -2281,6 +2342,7 @@ function bulkCaseResult(r, el) {
 /* ================= v2.3: campaign ================= */
 function campaignsActive() { return ((S.boot && S.boot.campaigns) || []).filter(function (c) { return c.aktif; }); }
 function cmpDef(F) {
+  if (F.v.caseType === 'Eskalasi') return (S.boot && S.boot.eskalasi) || F.cmpDef || null;
   var id = F.v.campaignId;
   return ((S.boot && S.boot.campaigns) || []).filter(function (c) { return c.id === id; })[0] || F.cmpDef || null;
 }
@@ -2315,29 +2377,32 @@ function cfInput(f, val) {
 function renderCampaignForm(m, F) {
   var v = F.v, b = S.boot, def = cmpDef(F), lockOutlet = !isAdmin() && S.user.outlet !== '*';
   v.cdata = v.cdata || {};
+  var isEsk = v.caseType === 'Eskalasi';
+  if (isEsk) lockOutlet = lockOutlet || role() === 'mekanik_sw';
+  if (!def && isEsk) { m.innerHTML = '<div class="form-wrap"><div class="msg err">' + ic('warn') + '<span>Form Eskalasi belum tersedia. Minta admin memasang Code.gs versi 2.4.</span></div></div>'; return; }
   if (!def) { m.innerHTML = '<div class="form-wrap"><div class="msg err">' + ic('warn') + '<span>Campaign ini sudah tidak aktif / dihapus admin.</span></div><button class="btn sec block" id="fBack">Pilih jenis input lain</button></div>'; $('#fBack').onclick = function () { F.chosen = false; v.caseType = ''; v.campaignId = ''; renderForm(m); }; return; }
   var h = '<div class="form-wrap"><form id="frm" autocomplete="off" novalidate>';
-  h += '<div class="hero" style="padding:14px 18px;background:linear-gradient(135deg,var(--orange),var(--orange-d))"><h1>' + esc(def.nama) + '</h1><p>' + (F.editOf ? esc(F.editOf) + ' · ' : '') + 'Input Campaign' + (def.deskripsi ? ' · ' + esc(def.deskripsi) : '') + '</p></div>';
+  h += '<div class="hero" style="padding:14px 18px' + (isEsk ? '' : ';background:linear-gradient(135deg,var(--orange),var(--orange-d))') + '"><h1>' + esc(def.nama) + '</h1><p>' + (F.editOf ? esc(F.editOf) + ' · ' : '') + (isEsk ? 'Tim Update Software · dicek foreman lalu diteruskan ke Admin Otoklix' : 'Input Campaign' + (def.deskripsi ? ' · ' + esc(def.deskripsi) : '')) + '</p></div>';
   if (F.note) h += '<div class="msg err">' + ic('undo') + '<span><b>Catatan revisi foreman:</b> ' + esc(F.note) + '</span></div>';
   if (F.state === 'error' && F.err) h += '<div class="msg err">' + ic('warn') + '<span>Pengiriman sebelumnya gagal: ' + esc(F.err) + '</span></div>';
   h += '<div class="savebar" id="saveState">' + ic('check', 'xs') + ' Draft tersimpan otomatis di HP</div>';
   h += '<div class="card"><h2><span class="hic num">1</span>Data kendaraan</h2><div class="stack">' +
     '<div><label>Dealer / Workshop Name <span class="req">*</span></label>' +
     (lockOutlet ? '<input type="text" id="f_outlet" value="' + esc(v.outlet) + '" readonly style="background:var(--gray-bg)">' :
-      '<select id="f_outlet"><option value="">Pilih outlet…</option>' + b.outlets.map(function (o) { return '<option' + (v.outlet === o ? ' selected' : '') + '>' + esc(o) + '</option>'; }).join('') + '</select>') + '</div>' +
+      '<select id="f_outlet"><option value="">Pilih outlet…</option>' + (v.caseType === 'Eskalasi' ? swOutlets() : vtagOutlets()).map(function (o) { return '<option' + (v.outlet === o ? ' selected' : '') + '>' + esc(o) + '</option>'; }).join('') + '</select>') + '</div>' +
     '<div><label>VIN <span class="req">*</span></label><input type="text" id="f_vin" value="' + esc(v.vin) + '" placeholder="17 karakter" maxlength="17" autocapitalize="characters" autocorrect="off" spellcheck="false" class="mono"><div class="small muted" id="vinc" style="margin-top:4px"></div></div>' +
     '<div class="two"><div><label>Nopol <span class="req">*</span></label><input type="text" id="f_nopol" value="' + esc(v.nopol) + '" placeholder="B 1234 XYZ" autocapitalize="characters"></div>' +
     '<div><label>Model <span class="req">*</span></label><input type="text" id="f_model" list="dlModel" value="' + esc(v.model) + '"><datalist id="dlModel">' + b.models.map(function (o) { return '<option value="' + esc(o) + '">'; }).join('') + '</datalist></div></div>' +
     '<div><label>Customer Name <span class="req">*</span></label><input type="text" id="f_customer" value="' + esc(v.customer) + '"></div></div></div>';
-  if ((def.fields || []).length) h += '<div class="card"><h2><span class="hic num">2</span>Data campaign</h2><div class="stack">' + def.fields.map(function (f) {
+  if ((def.fields || []).length) h += '<div class="card"><h2><span class="hic num">2</span>' + (isEsk ? 'Data eskalasi' : 'Data campaign') + '</h2><div class="stack">' + def.fields.map(function (f) {
     return '<div><label>' + esc(f.label) + (f.wajib ? ' <span class="req">*</span>' : ' <span class="opt">(opsional)</span>') + '</label>' + cfInput(f, v.cdata[f.id] || '') + '</div>';
   }).join('') + '</div></div>';
-  h += '<div class="card"><h2><span class="hic num or">3</span>Dokumentasi campaign</h2><div class="small muted" style="margin:-4px 0 10px">' + (opt('watermark', true) ? '🕒 Foto & video otomatis diberi watermark tanggal-jam, VIN & Nopol. ' : '') + 'File tersimpan di HP sampai terkirim.</div>' +
+  h += '<div class="card"><h2><span class="hic num or">3</span>' + (isEsk ? 'Dokumentasi eskalasi' : 'Dokumentasi campaign') + '</h2><div class="small muted" style="margin:-4px 0 10px">' + (opt('watermark', true) ? '🕒 Foto & video otomatis diberi watermark tanggal-jam, VIN & Nopol. ' : '') + 'File tersimpan di HP sampai terkirim.</div>' +
     '<div class="small" id="attc" style="font-weight:700"></div><div class="prog"><i id="attp"></i></div><div id="atts"></div></div>';
   h += '<div id="ferr" class="msg err hidden"></div><div class="sendbar"><button class="btn or block" type="submit" id="fSend">' + ic('send') + ' Kirim ke Foreman</button></div>' +
     (isTouch() ? '<button type="button" class="btn sec block" id="fLater" style="margin-top:10px">' + ic('upload') + ' Simpan dulu, lanjut upload file dari laptop</button>' : '') +
     '<button type="button" class="btn sec block" id="fCancel" style="margin-top:10px">Tutup form (draft tetap tersimpan)</button>' +
-    (F.editOf ? '' : '<button type="button" class="btn ghost block" id="fSwitch" style="margin-top:4px">Ganti jenis input</button><button type="button" class="btn ghost block" id="fDiscard" style="margin-top:4px;color:var(--bad)">Hapus draft ini</button>') + '</form></div>';
+    (F.editOf ? '' : (isEsk ? '' : '<button type="button" class="btn ghost block" id="fSwitch" style="margin-top:4px">Ganti jenis input</button>') + '<button type="button" class="btn ghost block" id="fDiscard" style="margin-top:4px;color:var(--bad)">Hapus draft ini</button>') + '</form></div>';
   m.innerHTML = h;
   drawAtts(); vinHint();
   bindFormEvents();
@@ -2358,7 +2423,18 @@ function renderCampaigns(el) {
     $$('[data-ci]', el).forEach(function (b) { b.onclick = function () { campaignEditor(list[+b.dataset.ci], el); }; });
   }, function (e) { el.innerHTML = '<div class="msg err">' + ic('warn') + '<span>' + esc(errMsg(e)) + '</span></div>'; });
 }
-function campaignEditor(c, el) {
+function renderEskForm(el) {
+  var d = S.boot.eskalasi;
+  if (!d) { el.innerHTML = '<div class="msg warn">' + ic('warn') + '<span>Form Eskalasi butuh server versi 2.4. Tempel Code.gs terbaru lalu Terapkan versi baru.</span></div>'; return; }
+  var kindL = { image: 'Foto', video: 'Video', file: 'File', any: 'Bebas' }, typeL = { text: 'Teks', textarea: 'Teks panjang', number: 'Angka', date: 'Tanggal', select: 'Pilihan' };
+  el.innerHTML = '<div class="msg info">' + ic('warn') + '<span>Form ini <b>khusus akun Mekanik & Foreman Update Software</b> (outlet ' + esc(swOutlets().join(', ') || 'Update Software') + '). Alur: mekanik input → foreman cek → diteruskan ke Admin Otoklix → admin tandai selesai. Ubah isian & dokumen di sini, langsung berlaku tanpa ubah kode.</span></div>' +
+    '<div class="card"><h2><span class="hic">' + ic('edit') + '</span>' + esc(d.nama) + '</h2><div class="small muted" style="margin:-6px 0 10px">Diubah ' + esc(fmtDT(d.updatedAt)) + ' oleh ' + esc(d.updatedBy || '-') + '</div>' +
+    '<div class="sec-t">Isian data</div><dl class="kv"><dt>Otomatis</dt><dd>Outlet, VIN, Nopol, Model, Customer</dd>' + (d.fields || []).map(function (f) { return kv(f.label, (typeL[f.type] || f.type) + (f.wajib ? ' · wajib' : ' · opsional') + (f.type === 'select' ? ' (' + (f.options || []).join(', ') + ')' : '')); }).join('') + '</dl>' +
+    '<div class="sec-t">Dokumen</div><dl class="kv">' + (d.lampiran || []).map(function (a) { return kv(a.label, (kindL[a.kind] || a.kind) + (a.wajib ? ' · wajib' : ' · opsional')); }).join('') + '</dl>' +
+    '<button class="btn or block" id="eEdit" style="margin-top:12px">' + ic('edit') + ' Ubah Form Eskalasi</button></div>';
+  $('#eEdit').onclick = function () { campaignEditor(d, el, true); };
+}
+function campaignEditor(c, el, esk) {
   var def = c ? JSON.parse(JSON.stringify(c)) : { nama: '', deskripsi: '', aktif: true, fields: [{ label: 'Nomor Campaign / Recall', type: 'text', wajib: true }], lampiran: [{ label: 'Foto VIN', kind: 'image', wajib: true }, { label: 'Foto sebelum pengerjaan', kind: 'image', wajib: true }, { label: 'Foto sesudah pengerjaan', kind: 'image', wajib: true }] };
   def.fields.forEach(function (f) { if (Array.isArray(f.options)) f.options = f.options.join(', '); });
   var TYPES = [['text', 'Teks singkat'], ['textarea', 'Teks panjang'], ['number', 'Angka'], ['date', 'Tanggal'], ['select', 'Pilihan']];
@@ -2371,10 +2447,10 @@ function campaignEditor(c, el) {
     $$('[data-lr]').forEach(function (r) { var a = def.lampiran[+r.dataset.lr]; a.label = r.querySelector('.l').value; a.kind = r.querySelector('.t').value; a.wajib = r.querySelector('.w').checked; a.hint = r.querySelector('.h').value; });
   };
   var draw = function () {
-    var h = '<h3>' + (c ? 'Ubah campaign' : 'Campaign baru') + '</h3><div class="stack" style="margin-top:12px">' +
-      '<div><label>Nama campaign <span class="req">*</span></label><input type="text" id="ceN" value="' + esc(def.nama) + '" placeholder="Mis. Recall Modul Baterai VF e34"></div>' +
+    var h = '<h3>' + (esk ? 'Ubah Form Eskalasi' : c ? 'Ubah campaign' : 'Campaign baru') + '</h3><div class="stack" style="margin-top:12px">' +
+      '<div><label>' + (esk ? 'Judul form' : 'Nama campaign') + ' <span class="req">*</span></label><input type="text" id="ceN" value="' + esc(def.nama) + '" placeholder="Mis. Recall Modul Baterai VF e34"></div>' +
       '<div><label>Keterangan <span class="opt">(opsional)</span></label><input type="text" id="ceD" value="' + esc(def.deskripsi) + '"></div>' +
-      '<label class="check"><input type="checkbox" id="ceA"' + (def.aktif ? ' checked' : '') + '> Aktif (tampil di menu Input mekanik)</label></div>' +
+      (esk ? '<input type="checkbox" id="ceA" checked hidden>' : '<label class="check"><input type="checkbox" id="ceA"' + (def.aktif ? ' checked' : '') + '> Aktif (tampil di menu Input mekanik)</label>') + '</div>' +
       '<div class="sec-t">' + ic('edit') + 'Isian data</div><div class="small muted" style="margin:-4px 0 8px">VIN, Nopol, Model, Customer & Outlet sudah otomatis ada.</div>' +
       def.fields.map(function (f, i) {
         return '<div class="cmprow" data-fr="' + i + '"><input type="text" class="l" value="' + esc(f.label) + '" placeholder="Nama isian">' + sel(TYPES, f.type, 'class="t"') +
@@ -2388,7 +2464,7 @@ function campaignEditor(c, el) {
           '<input type="text" class="h full" value="' + esc(a.hint || '') + '" placeholder="Petunjuk (opsional), mis. Tampak label part"></div>';
       }).join('') + '<button type="button" class="btn sec sm" id="ceAL">' + ic('plus', 'sm') + ' Tambah dokumen</button>' +
       '<div id="ceErr" class="msg err hidden"></div><div class="stack" style="margin-top:16px"><button class="btn or block" id="ceS">' + ic('check') + ' Simpan campaign</button>' +
-      (c && serverAtLeast('2.3.2') ? '<button class="btn bad block" id="ceDel">' + ic('trash') + ' Hapus campaign</button>' : '') + '<button class="btn sec block" id="ceX">Batal</button></div>';
+      (c && !esk && serverAtLeast('2.3.2') ? '<button class="btn bad block" id="ceDel">' + ic('trash') + ' Hapus campaign</button>' : '') + '<button class="btn sec block" id="ceX">Batal</button></div>';
     var sc = $('#ov .sheet') ? $('#ov .sheet').scrollTop : 0;
     modal(h);
     if (sc) $('#ov .sheet').scrollTop = sc;
@@ -2416,11 +2492,17 @@ function campaignEditor(c, el) {
     $('#ceS').onclick = function () {
       grab();
       var er = $('#ceErr'), btn = this; er.classList.add('hidden');
-      if (!def.nama.trim()) { er.innerHTML = ic('warn') + '<span>Nama campaign wajib diisi.</span>'; er.classList.remove('hidden'); return; }
+      if (!def.nama.trim()) { er.innerHTML = ic('warn') + '<span>' + (esk ? 'Judul form' : 'Nama campaign') + ' wajib diisi.</span>'; er.classList.remove('hidden'); return; }
       if (!def.lampiran.some(function (a) { return a.label.trim(); }) && !def.fields.some(function (f) { return f.label.trim(); })) { er.innerHTML = ic('warn') + '<span>Tambahkan minimal satu isian atau dokumen.</span>'; er.classList.remove('hidden'); return; }
       btn.disabled = true; btn.textContent = 'Menyimpan…';
       api('saveCampaign', def).then(function (list) {
-        S.boot.campaigns = list; closeModal(); toast('Campaign disimpan & langsung berlaku.'); renderCampaigns(el);
+        S.boot.campaigns = list;
+        if (esk) {
+          return api('sync', null).then(function (r) { if (r.eskalasi) S.boot.eskalasi = r.eskalasi; }).catch(function () {}).then(function () {
+            closeModal(); toast('Form Eskalasi disimpan & langsung berlaku.'); renderEskForm(el);
+          });
+        }
+        closeModal(); toast('Campaign disimpan & langsung berlaku.'); renderCampaigns(el);
       }, function (e) { er.innerHTML = ic('warn') + '<span>' + esc(errMsg(e)) + '</span>'; er.classList.remove('hidden'); btn.disabled = false; btn.innerHTML = ic('check') + ' Simpan campaign'; });
     };
   };
