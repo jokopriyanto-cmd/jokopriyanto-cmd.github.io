@@ -4,7 +4,7 @@
 'use strict';
 
 var CONFIG = {
-  VERSION: '2.4.3',
+  VERSION: '2.4.4',
   API_URL: 'https://script.google.com/macros/s/AKfycbyGcLEZZ2Xm0nYl2gq53Qng-KmOUYSqvCrlwtAfRrxROwIREyGL3JyG9CQPlT_9QBYq1Q/exec',
   POLL_MS: 20000,            // cek data baru tiap 20 detik
   CHUNK: 2359296,            // 9 x 256 KB per potongan upload
@@ -493,10 +493,10 @@ function init() {
     b.setAttribute('aria-label', show ? 'Sembunyikan password' : 'Tampilkan password');
   });
   // Masuk otomatis dari Otoklix Depot: token sesi dikirim lewat #sso=... (tidak ikut terkirim ke server).
-  var sm = location.hash.match(/[#&]sso=([A-Za-z0-9]{32,128})/);
+  var sm = location.hash.match(/[#&]sso=([A-Za-z0-9]{4,128})/);
   if (sm) {
-    if (store('vt_token') !== sm[1]) { store('vt_boot', null); }
-    store('vt_token', sm[1]); sstore('vt_token', null);
+    if (sm[1] === 'none') { store('vt_token', null); sstore('vt_token', null); store('vt_boot', null); }   // akun Depot belum terhubung: jangan pakai sesi lama
+    else { if (store('vt_token') !== sm[1]) store('vt_boot', null); store('vt_token', sm[1]); sstore('vt_token', null); }
     try { history.replaceState(history.state, '', location.pathname + location.search); } catch (e) { /* */ }
   }
   var qm = location.search.match(/[?&]case=([^&]+)/);
