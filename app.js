@@ -4,7 +4,7 @@
 'use strict';
 
 var CONFIG = {
-  VERSION: '2.4.0',
+  VERSION: '2.4.2',
   API_URL: 'https://script.google.com/macros/s/AKfycbyGcLEZZ2Xm0nYl2gq53Qng-KmOUYSqvCrlwtAfRrxROwIREyGL3JyG9CQPlT_9QBYq1Q/exec',
   POLL_MS: 20000,            // cek data baru tiap 20 detik
   CHUNK: 2359296,            // 9 x 256 KB per potongan upload
@@ -1524,6 +1524,7 @@ function pickFile(key, file, src) {
   if (file.size > 500 * 1024 * 1024) { toast('File terlalu besar (maks 500 MB).'); return; }
   var isImg = /^image\//.test(file.type) || item.kind === 'image';
   var isVid = /^video\//.test(file.type) || item.kind === 'video';
+  if (isImg) maybeOcr(F, item, file);
   var old = F.files[key];
   var blobId = F.id + '|' + key + '|' + Date.now();
   S.proc[pk] = { pct: 0.05, label: 'Menyimpan file di HP…' };
@@ -2668,6 +2669,115 @@ function pushBanner() {
 function bindPushBanner(root) {
   var b = $('#pushGo', root);
   if (b) b.onclick = function () { pushDiag(); };
+}
+
+/* ================= v2.4.2: isi otomatis VIN & ODO dari foto (OCR) ================= */
+function ocrTarget(item) {
+  var s = String(item.key || '') + ' ' + String(item.label || '');
+  if (/(^|[\s_])vin\b|foto_vin/i.test(s)) return 'vin';
+  if (/(^|[\s_])odo(meter)?\b|foto_odo|kilometer/i.test(s)) return 'odo';
+  return '';
+}
+/** Cari VIN 17 karakter di teks OCR. VIN tidak memakai huruf I, O, Q → dibaca sebagai 1, 0, 0. */
+function parseVin(text) {
+  var out = [], add = function (v) { if (out.indexOf(v) < 0) out.push(v); };
+  var fix = function (x) { return x.toUpperCase().replace(/[OQ]/g, '0').replace(/I/g, '1'); };
+  var valid = /^[A-HJ-NPR-Z0-9]{17}$/;
+  String(text || '').split(/\n/).forEach(function (line) {
+    var clean = fix(line.replace(/[^A-Za-z0-9]/g, ''));
+    var i = clean.indexOf('RLN');
+    while (i >= 0) { var w = clean.substr(i, 17); if (valid.test(w)) add(w); i = clean.indexOf('RLN', i + 1); }
+    line.split(/[^A-Za-z0-9]+/).forEach(function (tok) { tok = fix(tok); if (valid.test(tok) && /\d/.test(tok) && /[A-Z]/.test(tok)) add(tok); });
+    if (clean.length === 17 && valid.test(clean) && /\d/.test(clean) && /[A-Z]/.test(clean)) add(clean);
+  });
+  out.sort(function (a, b) { return (b.indexOf('RLN') === 0) - (a.indexOf('RLN') === 0); });
+  return out;
+}
+/** Cari angka ODO (km). Prioritas: angka setelah tulisan ODO; lalu angka diikuti "km" (bukan km/h). */
+function parseOdo(text) {
+  var t = String(text || '').replace(/\r/g, ''), strong = [], weak = [];
+  var num = function (x) { var n = parseInt(String(x).replace(/[.,\s]/g, ''), 10); return n > 0 && n < 2000000 ? String(n) : ''; };
+  var m, re1 = /(?:ODO(?:METER)?|TOTAL|JARAK\s*TEMPUH)[^0-9]{0,12}(\d{1,3}(?:[.,\s]\d{3})+|\d{1,7})/gi;
+  while ((m = re1.exec(t))) { var a = num(m[1]); if (a && strong.indexOf(a) < 0) strong.push(a); }
+  var re2 = /(\d{1,3}(?:[.,]\d{3})+|\d{1,7})\s*km\b(?!\s*\/\s*h)/gi;
+  while ((m = re2.exec(t))) {
+    var before = t.slice(Math.max(0, m.index - 14), m.index);
+    if (/range|sisa|jangkauan|est/i.test(before)) continue;
+    var b = num(m[1]); if (b && strong.indexOf(b) < 0 && weak.indexOf(b) < 0) weak.push(b);
+  }
+  weak.sort(function (x, y) { return +y - +x; });
+  return { strong: strong, all: strong.concat(weak) };
+}
+function odoInputId(F) {
+  if (!isCustomType(F.v.caseType)) return 'f_odo';
+  var def = cmpDef(F), f = def && (def.fields || []).filter(function (x) { return /\bodo\b|odometer|kilometer/i.test(x.label) || x.id === 'odo'; })[0];
+  return f ? 'cf_' + f.id : '';
+}
+function imageForOcr(file) {
+  var max = 2000;
+  var draw = function (src, w, h) {
+    var sc = Math.min(1, max / Math.max(w, h)), c = document.createElement('canvas');
+    c.width = Math.round(w * sc); c.height = Math.round(h * sc);
+    c.getContext('2d').drawImage(src, 0, 0, c.width, c.height);
+    return new Promise(function (res) { c.toBlob(res, 'image/jpeg', 0.9); });
+  };
+  var p = window.createImageBitmap ? createImageBitmap(file, { imageOrientation: 'from-image' }).then(function (bm) { return draw(bm, bm.width, bm.height); })
+    : Promise.reject();
+  return p.catch(function () {
+    return new Promise(function (res, rej) {
+      var img = new Image(), u = URL.createObjectURL(file);
+      img.onload = function () { draw(img, img.naturalWidth, img.naturalHeight).then(res, rej); URL.revokeObjectURL(u); };
+      img.onerror = function () { URL.revokeObjectURL(u); rej(new Error('Foto tidak bisa dibaca')); };
+      img.src = u;
+    });
+  }).then(function (blob) {
+    if (!blob) throw new Error('Foto tidak bisa dibaca');
+    return new Promise(function (res, rej) { var r = new FileReader(); r.onload = function () { res(String(r.result).split(',')[1]); }; r.onerror = rej; r.readAsDataURL(blob); });
+  });
+}
+function ocrHint(target, html) {
+  var F = S.form; if (!F) return;
+  var id = target === 'vin' ? 'f_vin' : odoInputId(F), inp = id && document.getElementById(id);
+  if (!inp) return;
+  var box = document.getElementById('ocr_' + target);
+  if (!box) { box = document.createElement('div'); box.id = 'ocr_' + target; box.className = 'ocrhint'; inp.parentNode.insertBefore(box, inp.nextSibling); }
+  box.innerHTML = html;
+  box.style.display = html ? '' : 'none';
+  $$('[data-ocrv]', box).forEach(function (b) {
+    b.onclick = function () { setFormValue(id, b.dataset.ocrv); ocrHint(target, '📷 Diisi dari foto: <b>' + esc(b.dataset.ocrv) + '</b> — mohon cek kembali.'); };
+  });
+}
+function setFormValue(id, val) {
+  var inp = document.getElementById(id); if (!inp) return;
+  inp.value = val;
+  inp.dispatchEvent(new Event('input', { bubbles: true }));
+  inp.classList.add('ocrfill'); setTimeout(function () { inp.classList.remove('ocrfill'); }, 2500);
+}
+/** Dipanggil saat Foto VIN / Foto ODO dipilih: baca teks foto lalu isi kolom VIN / ODO. */
+function maybeOcr(F, item, file) {
+  var target = ocrTarget(item);
+  if (!target || !opt('ocr_otomatis', true) || !serverAtLeast('2.4.2') || !navigator.onLine || F.kind !== 'case') return;
+  var label = target === 'vin' ? 'VIN' : 'ODO';
+  var stillHere = function () { return S.form === F && $('#frm'); };
+  if (stillHere()) ocrHint(target, '<span class="spin xs"></span> Membaca ' + label + ' dari foto…');
+  imageForOcr(file).then(function (b64) { return api('ocrImage', b64, 'image/jpeg'); }).then(function (r) {
+    var cands = target === 'vin' ? parseVin(r.text) : parseOdo(r.text);
+    var list = target === 'vin' ? cands : cands.all, sure = target === 'vin' ? (cands.length === 1 || (cands[0] && cands[0].indexOf('RLN') === 0)) : cands.strong.length === 1 || cands.all.length === 1;
+    var id = target === 'vin' ? 'f_vin' : odoInputId(F);
+    var cur = stillHere() && id && document.getElementById(id) ? document.getElementById(id).value.trim() : (target === 'vin' ? F.v.vin : '');
+    if (!stillHere()) {
+      if (target === 'vin' && sure && !F.v.vin) { F.v.vin = list[0]; Drafts.save(F); }
+      return;
+    }
+    if (!list.length) { ocrHint(target, '📷 ' + label + ' tidak terbaca dari foto. Isi manual ya.'); return; }
+    if (cur.toUpperCase() === list[0]) { ocrHint(target, '📷 ✓ Sama dengan foto ' + label + '.'); return; }
+    if (!cur && sure) { setFormValue(id, list[0]); ocrHint(target, '📷 Terisi otomatis dari foto ' + label + ': <b>' + esc(list[0]) + '</b> — mohon cek kembali.'); return; }
+    ocrHint(target, '📷 Terbaca dari foto' + (cur ? ' (beda dengan isian)' : '') + ', ketuk untuk memakai: ' +
+      list.slice(0, 4).map(function (v) { return '<button type="button" class="chip" data-ocrv="' + esc(v) + '">' + esc(v) + '</button>'; }).join(' '));
+  }).catch(function (e) {
+    console.warn('OCR', errMsg(e));
+    if (stillHere()) ocrHint(target, '📷 ' + label + ' belum bisa dibaca dari foto' + (navigator.onLine ? '' : ' (offline)') + '. Isi manual ya.');
+  });
 }
 
 /* ================= service worker & update otomatis ================= */

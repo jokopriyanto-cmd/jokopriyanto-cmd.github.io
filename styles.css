@@ -261,3 +261,8 @@ dl.kv dt{color:var(--muted);font-size:13px} dl.kv dd{margin:0;white-space:pre-wr
 @media (max-width:520px){.cmprow{grid-template-columns:1fr auto}.cmprow .l{grid-column:1/-1}}
 .todo.chooser{padding:14px}
 .todo.chooser .tt b{font-size:15px}
+/* v2.4.2 OCR */
+.ocrhint{margin-top:6px;font-size:13px;color:var(--muted);line-height:1.5;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.ocrhint .chip{margin:0;padding:4px 10px;font-family:ui-monospace,Menlo,Consolas,monospace}
+.ocrhint .spin.xs{width:14px;height:14px;border-width:2px;display:inline-block;margin:0}
+input.ocrfill{box-shadow:0 0 0 3px rgba(22,163,74,.35);transition:box-shadow .3s}
