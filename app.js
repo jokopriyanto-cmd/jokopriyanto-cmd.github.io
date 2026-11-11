@@ -4,7 +4,7 @@
 'use strict';
 
 var CONFIG = {
-  VERSION: '2.4.4',
+  VERSION: '2.4.5',
   API_URL: 'https://script.google.com/macros/s/AKfycbyGcLEZZ2Xm0nYl2gq53Qng-KmOUYSqvCrlwtAfRrxROwIREyGL3JyG9CQPlT_9QBYq1Q/exec',
   POLL_MS: 20000,            // cek data baru tiap 20 detik
   CHUNK: 2359296,            // 9 x 256 KB per potongan upload
@@ -2683,8 +2683,31 @@ function ocrTarget(item) {
   var s = String(item.key || '') + ' ' + String(item.label || '');
   if (/(^|[\s_])vin\b|foto_vin/i.test(s)) return 'vin';
   if (/(^|[\s_])odo(meter)?\b|foto_odo|kilometer/i.test(s)) return 'odo';
+  if (/foto_depan|foto_belakang|(^|[\s_])(depan|belakang)\b|tampak (depan|belakang)|plat|nopol/i.test(s)) return 'nopol';
   return '';
 }
+/** Plat nomor Indonesia: kode wilayah (1-2 huruf) + 1-4 angka + 1-3 huruf. Hasil: "B 1234 ABC". */
+var PLATE_AREAS = ('A B D E F G H K L M N P R S T W Z AA AB AD AE AG BA BB BD BE BG BH BK BL BM BN BP DA DB DD DE DG DH DK DL DM DN DP DR DS DT EA EB ED ' +
+  'KB KH KT KU PA PB PG PY').split(' ');
+function parsePlate(text) {
+  var strong = [], weak = [];
+  var add = function (arr, v) { if (strong.indexOf(v) < 0 && weak.indexOf(v) < 0) arr.push(v); };
+  var re = /(^|[^A-Z0-9])([A-Z]{1,2})\s*([0-9OI]{1,4})\s*([A-Z]{1,3})?(?=$|[^A-Z0-9])/g;
+  String(text || '').toUpperCase().split(/\n/).forEach(function (line) {
+    var m;
+    re.lastIndex = 0;
+    while ((m = re.exec(line))) {
+      var area = m[2], num = m[3].replace(/O/g, '0').replace(/I/g, '1'), suf = m[4] || '';
+      re.lastIndex = m.index + m[0].length;
+      if (PLATE_AREAS.indexOf(area) < 0 || !/^\d+$/.test(num) || num.charAt(0) === '0') continue;
+      var v = area + ' ' + num + (suf ? ' ' + suf : '');
+      if (suf) add(strong, v); else if (num.length >= 3) add(weak, v);
+    }
+  });
+  return { strong: strong, all: strong.concat(weak) };
+}
+function plateKey(v) { return String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); }
+
 /** Cari VIN 17 karakter di teks OCR. VIN tidak memakai huruf I, O, Q → dibaca sebagai 1, 0, 0. */
 function parseVin(text) {
   var out = [], add = function (v) { if (out.indexOf(v) < 0) out.push(v); };
@@ -2744,14 +2767,14 @@ function imageForOcr(file) {
 }
 function ocrHint(target, html) {
   var F = S.form; if (!F) return;
-  var id = target === 'vin' ? 'f_vin' : odoInputId(F), inp = id && document.getElementById(id);
+  var id = target === 'vin' ? 'f_vin' : target === 'nopol' ? 'f_nopol' : odoInputId(F), inp = id && document.getElementById(id);
   if (!inp) return;
   var box = document.getElementById('ocr_' + target);
   if (!box) { box = document.createElement('div'); box.id = 'ocr_' + target; box.className = 'ocrhint'; inp.parentNode.insertBefore(box, inp.nextSibling); }
   box.innerHTML = html;
   box.style.display = html ? '' : 'none';
   $$('[data-ocrv]', box).forEach(function (b) {
-    b.onclick = function () { setFormValue(id, b.dataset.ocrv); ocrHint(target, '📷 Diisi dari foto: <b>' + esc(b.dataset.ocrv) + '</b> — mohon cek kembali.'); };
+    b.onclick = function () { setFormValue(id, b.dataset.ocrv); ocrHint(target, '📷 Diisi dari foto. Mohon cek kembali.'); };
   });
 }
 function setFormValue(id, val) {
@@ -2764,21 +2787,30 @@ function setFormValue(id, val) {
 function maybeOcr(F, item, file) {
   var target = ocrTarget(item);
   if (!target || !opt('ocr_otomatis', true) || !serverAtLeast('2.4.2') || !navigator.onLine || F.kind !== 'case') return;
-  var label = target === 'vin' ? 'VIN' : 'ODO';
+  var label = target === 'vin' ? 'VIN' : target === 'nopol' ? 'Nopol' : 'ODO';
+  var fotoLbl = target === 'nopol' ? 'foto ' + String(item.label || 'kendaraan').replace(/^foto\s*/i, '').toLowerCase() : 'foto ' + label;
   var stillHere = function () { return S.form === F && $('#frm'); };
-  if (stillHere()) ocrHint(target, '<span class="spin xs"></span> Membaca ' + label + ' dari foto…');
+  var curVal = function () { var el = document.getElementById(target === 'vin' ? 'f_vin' : target === 'nopol' ? 'f_nopol' : odoInputId(F)); return el ? el.value.trim() : ''; };
+  // Foto depan & belakang sama-sama membaca plat: jangan tampilkan ulang bila nopol sudah terisi dari foto lain
+  if (stillHere()) ocrHint(target, '<span class="spin xs"></span> Membaca ' + label + ' dari ' + fotoLbl + '…');
   imageForOcr(file).then(function (b64) { return api('ocrImage', b64, 'image/jpeg'); }).then(function (r) {
-    var cands = target === 'vin' ? parseVin(r.text) : parseOdo(r.text);
-    var list = target === 'vin' ? cands : cands.all, sure = target === 'vin' ? (cands.length === 1 || (cands[0] && cands[0].indexOf('RLN') === 0)) : cands.strong.length === 1 || cands.all.length === 1;
-    var id = target === 'vin' ? 'f_vin' : odoInputId(F);
-    var cur = stillHere() && id && document.getElementById(id) ? document.getElementById(id).value.trim() : (target === 'vin' ? F.v.vin : '');
+    var cands = target === 'vin' ? parseVin(r.text) : target === 'nopol' ? parsePlate(r.text) : parseOdo(r.text);
+    var list = target === 'vin' ? cands : cands.all;
+    var sure = target === 'vin' ? (cands.length === 1 || (cands[0] && cands[0].indexOf('RLN') === 0)) : cands.strong.length === 1 || cands.all.length === 1;
+    var id = target === 'vin' ? 'f_vin' : target === 'nopol' ? 'f_nopol' : odoInputId(F);
+    var same = function (a, b) { return target === 'nopol' ? plateKey(a) === plateKey(b) : String(a).toUpperCase() === String(b).toUpperCase(); };
     if (!stillHere()) {
-      if (target === 'vin' && sure && !F.v.vin) { F.v.vin = list[0]; Drafts.save(F); }
+      if (sure && target === 'vin' && !F.v.vin) { F.v.vin = list[0]; Drafts.save(F); }
+      if (sure && target === 'nopol' && !F.v.nopol) { F.v.nopol = list[0]; Drafts.save(F); }
       return;
     }
-    if (!list.length) { ocrHint(target, '📷 ' + label + ' tidak terbaca dari foto. Isi manual ya.'); return; }
-    if (cur.toUpperCase() === list[0]) { ocrHint(target, '📷 ✓ Sama dengan foto ' + label + '.'); return; }
-    if (!cur && sure) { setFormValue(id, list[0]); ocrHint(target, '📷 Terisi otomatis dari foto ' + label + ': <b>' + esc(list[0]) + '</b> — mohon cek kembali.'); return; }
+    var cur = curVal();
+    if (!list.length) {
+      if (target === 'nopol' && cur) { ocrHint(target, ''); return; }   // plat tak terlihat (mis. foto samping) & nopol sudah ada: diam saja
+      ocrHint(target, '📷 ' + label + ' tidak terbaca dari ' + fotoLbl + '. Isi manual ya.'); return;
+    }
+    if (cur && list.some(function (v) { return same(v, cur); })) { ocrHint(target, '📷 ✓ Sama dengan ' + fotoLbl + '.'); return; }
+    if (!cur && sure) { setFormValue(id, list[0]); ocrHint(target, '📷 Terisi dari ' + fotoLbl + '. Mohon cek kembali.'); return; }
     ocrHint(target, '📷 Terbaca dari foto' + (cur ? ' (beda dengan isian)' : '') + ', ketuk untuk memakai: ' +
       list.slice(0, 4).map(function (v) { return '<button type="button" class="chip" data-ocrv="' + esc(v) + '">' + esc(v) + '</button>'; }).join(' '));
   }).catch(function (e) {
