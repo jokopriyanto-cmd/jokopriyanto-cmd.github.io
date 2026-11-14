@@ -404,3 +404,10 @@ body.hasapp main{padding-top:6px}
 .appseg button small{display:none}
 .appseg em{top:3px;right:5px;min-width:17px;height:17px;font-size:10.5px}
 @media (min-width:1024px){ #appbar{padding:10px 28px 8px} #appbar .appseg{max-width:420px} }
+
+/* v2.5.4: pilihan penyedia AI */
+.aiprov{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px}
+.aiopt{border:1.5px solid #d3d9e6;border-radius:12px;padding:9px 8px;cursor:pointer;display:flex;flex-direction:column;gap:2px;margin:0;font-weight:500;background:#fff}
+.aiopt input{position:absolute;opacity:0;pointer-events:none}
+.aiopt b{font-size:14px} .aiopt small{font-size:11.5px;color:var(--muted);line-height:1.25}
+.aiopt.on{border-color:#6d28d9;background:#f3efff} .aiopt.on b{color:#6d28d9}

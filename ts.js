@@ -491,7 +491,7 @@ function tsRenderForm(m) {
     '<label class="urgbox"><input type="checkbox" id="t_urgent"' + (v.urgent ? ' checked' : '') + '><span><b>URGENT</b> · mobil mogok / customer menunggu. Tombol telepon &amp; WhatsApp Tech Support langsung muncul.</span></label>' +
     '<div id="t_err" class="msg err hidden"></div>' +
     '<div class="sendbar"><button class="btn or block" type="submit" id="t_go">' + ic('send') + ' Kirim ke Tech Support</button></div>' +
-    '<div class="small muted" style="text-align:center;margin-top:-4px">' + (tsCfg().ai.on && tsCfg().ai.ready ? 'Saran awal AI muncul dalam beberapa detik' : 'Saran dari kasus serupa muncul otomatis') + ' · HP Tech Support berbunyi</div></form>';
+    '<div class="small muted" style="text-align:center;margin-top:-4px">' + (tsCfg().ai.ready ? 'Saran awal AI muncul dalam beberapa detik' : 'Saran dari kasus serupa muncul otomatis') + ' · HP Tech Support berbunyi</div></form>';
   tsMountAtts($('#t_picks'), F, TS_PHOTOS, function (k, file) { if (k === 'depan') tsOcrPlate(file); });
   $$('#t_sis .chip').forEach(function (b) { b.onclick = function () { v.sistem = v.sistem === b.dataset.s ? '' : b.dataset.s; $$('#t_sis .chip').forEach(function (x) { x.classList.toggle('on', x.dataset.s === v.sistem); }); tsSimSoon(); tsSaveFormText(); }; });
   $('#tsf').oninput = function () { tsCollect(F); tsSaveFormText(); tsSimSoon(); };
@@ -1048,12 +1048,21 @@ function tsAdminDraw(el, a) {
     '<div class="two" style="margin-top:10px"><div><label>Tambah akun</label><select id="tmU"><option value="">Pilih akun…</option>' + users.filter(function (u) { return !team.some(function (t) { return t.username === u.username; }); }).map(function (u) { return '<option value="' + esc(u.username) + '">' + esc(u.nama + ' (' + roleName(u.role) + ')') + '</option>'; }).join('') + '</select></div>' +
     '<div><label>Nomor WhatsApp</label><input type="text" id="tmW" inputmode="tel" placeholder="08xxxxxxxxxx"></div></div><div style="margin-top:8px"><label>Peran</label><input type="text" id="tmP" value="Technical Support"></div>' +
     '<button class="btn sec block" id="tmAdd" style="margin-top:10px">' + ic('plus') + ' Tambah anggota</button></div>';
-  h += '<div class="card"><h2><span class="hic" style="background:#f3efff;color:#6d28d9">' + ic('zap') + '</span>Asisten AI <span class="pill ' + (c.ai.on ? 'done' : 'draft') + '">' + (c.ai.on ? 'ON' : 'OFF') + '</span></h2>' +
-    '<div class="msg ' + (a.aiReady ? 'ok' : 'warn') + '">' + ic(a.aiReady ? 'check' : 'key') + '<span>' + (a.aiReady ? 'API key AI sudah terpasang di Script Properties.' : 'Belum ada API key (Script Property <b>AI_API_KEY</b>). Tanpa key, saran tetap muncul dari <b>kasus serupa</b> (gratis).') + '</span></div>' +
-    '<label class="check"><input type="checkbox" id="aiOn"' + (c.ai.on ? ' checked' : '') + (a.aiReady ? '' : ' disabled') + '> Aktifkan saran AI</label>' +
+  var prov = a.aiProvider || 'gemini', keys = a.aiKeys || {};
+  var onNow = c.ai.on && !!keys[prov];
+  h += '<div class="card"><h2><span class="hic" style="background:#f3efff;color:#6d28d9">' + ic('zap') + '</span>Asisten AI <span class="pill ' + (onNow ? 'done' : 'draft') + '">' + (onNow ? 'ON · ' + (prov === 'claude' ? 'Claude' : 'Gemini') : 'OFF') + '</span></h2>' +
+    '<div class="small muted" style="margin:-6px 0 10px">Saat OFF, saran tetap muncul gratis dari <b>kasus serupa</b>. Data yang dikirim ke AI hanya merek, model, sistem, keluhan & DTC (tanpa nopol, nama, foto).</div>' +
+    '<label>Penyedia</label><div class="aiprov">' +
+    [['off', 'Mati', 'Pakai kasus serupa saja'], ['gemini', 'Gemini', 'Tier gratis Google'], ['claude', 'Claude API', 'Berbayar, lebih akurat']].map(function (x) {
+      var on = x[0] === 'off' ? !c.ai.on : c.ai.on && prov === x[0];
+      return '<label class="aiopt' + (on ? ' on' : '') + '"><input type="radio" name="aip" value="' + x[0] + '"' + (on ? ' checked' : '') + '><b>' + x[1] + '</b><small>' + x[2] + '</small></label>';
+    }).join('') + '</div>' +
+    '<div id="aiKeyBox"></div>' +
+    '<div id="aiMore"><label style="margin-top:10px">Saran AI dikirim</label>' +
     '<label class="check"><input type="radio" name="aim" value="langsung"' + (c.ai.mode !== 'draf' ? ' checked' : '') + '> <span><b>Langsung ke teknisi</b>, berlabel "belum dicek"</span></label>' +
-    '<label class="check"><input type="radio" name="aim" value="draf"' + (c.ai.mode === 'draf' ? ' checked' : '') + '> <span><b>Draf untuk Tech Support saja</b>, teknisi melihat setelah disetujui</span></label>' +
-    '<div><label>Model</label><input type="text" id="aiM" value="' + esc(c.ai.model || '') + '"></div><button class="btn sec block" id="aiSave" style="margin-top:10px">Simpan asisten AI</button></div>';
+    '<label class="check"><input type="radio" name="aim" value="draf"' + (c.ai.mode === 'draf' ? ' checked' : '') + '> <span><b>Draf untuk Tech Support dulu</b>, teknisi melihat setelah disetujui</span></label>' +
+    '<label>Model <span class="opt">kosongkan = otomatis</span></label><input type="text" id="aiM" value="' + esc(c.ai.model || '') + '" placeholder="' + esc(a.aiModel || '') + '"></div>' +
+    '<div id="aiTestRes"></div><div class="row" style="margin-top:10px;gap:8px"><button class="btn block" id="aiSave">Simpan asisten AI</button><button class="btn sec" id="aiTest">' + ic('zap', 'sm') + ' Tes</button></div></div>';
   h += '<div class="card"><h2><span class="hic" style="background:var(--bad-bg);color:var(--bad)">' + ic('warn') + '</span>Kasus URGENT</h2>' +
     '<label class="check"><input type="checkbox" id="urB"' + (c.urgent.buttons !== false ? ' checked' : '') + '> Tampilkan tombol Telepon &amp; WhatsApp</label>' +
     '<label>Pesan WA otomatis</label><textarea id="urT" style="min-height:70px">' + esc(c.urgent.template || '') + '</textarea><div class="small muted">Kode: {id} {kendaraan} {nopol} {outlet} {keluhan} {link}</div><button class="btn sec block" id="urSave" style="margin-top:10px">Simpan</button></div>';
@@ -1086,7 +1095,40 @@ function tsAdminDraw(el, a) {
     team.push({ username: un, nama: u ? u.nama : un, peran: $('#tmP').value.trim() || 'Technical Support', wa: $('#tmW').value.trim(), aktif: true });
     saveTeam();
   };
-  $('#aiSave').onclick = function () { var md = $$('[name=aim]').filter(function (x) { return x.checked; })[0]; save('ai', { on: $('#aiOn').checked, mode: md ? md.value : 'langsung', model: $('#aiM').value.trim() }, this); };
+  var curP = function () { var x = $$('[name=aip]').filter(function (r) { return r.checked; })[0]; return x ? x.value : 'off'; };
+  var drawKey = function () {
+    var p = curP(), box = $('#aiKeyBox');
+    $$('.aiopt').forEach(function (l) { l.classList.toggle('on', l.querySelector('input').checked); });
+    $('#aiMore').style.display = p === 'off' ? 'none' : '';
+    $('#aiTest').style.display = p === 'off' ? 'none' : '';
+    if (p === 'off') { box.innerHTML = ''; return; }
+    var nm = p === 'claude' ? 'Claude' : 'Gemini', k = keys[p];
+    box.innerHTML = '<div class="msg ' + (k ? 'ok' : 'warn') + '">' + ic(k ? 'check' : 'key') + '<span>' + (k ? 'API key ' + nm + ' terpasang (' + esc(k) + '). Tersimpan aman di server, tidak tampil di aplikasi.' : 'Belum ada API key ' + nm + '.') +
+      (p === 'gemini' ? '<br><small>Tier gratis: Google boleh memakai data untuk mengembangkan produknya. Buat key di aistudio.google.com.</small>' : '<br><small>Buat key di console.anthropic.com → API Keys. Bayar sesuai pemakaian.</small>') + '</span></div>' +
+      '<div class="pwf"><input type="password" id="aiK" autocomplete="off" placeholder="' + (k ? 'Tempel key baru untuk mengganti' : 'Tempel API key ' + nm + ' di sini') + '"><button type="button" class="eye" aria-label="Tampilkan">' + ic('eye') + '</button></div>' +
+      '<div class="row" style="gap:8px;margin-top:8px"><button class="btn sec sm" id="aiKS">' + ic('key', 'sm') + ' Simpan key</button>' + (k ? '<button class="btn sec sm" id="aiKD" style="color:var(--bad)">' + ic('trash', 'sm') + ' Hapus key</button>' : '') + '</div>';
+    $('#aiKS').onclick = function () {
+      var v = $('#aiK').value.trim(); if (!v) { toast('Tempel API key dulu.'); return; }
+      var b = this; b.disabled = true;
+      api('tsAdminSave', 'aikey', { provider: p, key: v }).then(function (na) { toast('API key ' + nm + ' tersimpan.'); tsAdminDraw(el, na); var r = $$('[name=aip]').filter(function (x) { return x.value === p; })[0]; if (r) { r.checked = true; r.dispatchEvent(new Event('change')); } }, function (e) { b.disabled = false; toast(errMsg(e), 6000); });
+    };
+    if ($('#aiKD')) $('#aiKD').onclick = function () {
+      confirmBox({ title: 'Hapus API key ' + nm + '?', body: 'Asisten ' + nm + ' berhenti. Saran tetap muncul dari kasus serupa.', ok: 'Hapus', danger: true }).then(function (y) {
+        if (y) api('tsAdminSave', 'aikey', { provider: p, key: '' }).then(function (na) { toast('API key dihapus.'); tsAdminDraw(el, na); tsLoad(true); }, function (e) { toast(errMsg(e)); });
+      });
+    };
+  };
+  $$('[name=aip]').forEach(function (r) { r.onchange = drawKey; });
+  drawKey();
+  $('#aiSave').onclick = function () {
+    var p = curP(), md = $$('[name=aim]').filter(function (x) { return x.checked; })[0];
+    save('ai', { on: p !== 'off', provider: p === 'off' ? prov : p, mode: md ? md.value : 'langsung', model: $('#aiM').value.trim() }, this);
+  };
+  $('#aiTest').onclick = function () {
+    var b = this, p = curP(); b.disabled = true; $('#aiTestRes').innerHTML = '<div class="msg info"><span class="spin xs"></span><span>Menghubungi ' + (p === 'claude' ? 'Claude' : 'Gemini') + '…</span></div>';
+    api('tsAiTest', p).then(function (r) { $('#aiTestRes').innerHTML = '<div class="msg ok">' + ic('check') + '<span><b>Berhasil</b> · ' + esc(r.provider + ' ' + r.model) + ' · ' + Math.round(r.ms / 100) / 10 + ' dtk<br>"' + esc(r.sample) + '"</span></div>'; },
+      function (e) { $('#aiTestRes').innerHTML = '<div class="msg err">' + ic('warn') + '<span>' + esc(errMsg(e)) + '</span></div>'; }).finally(function () { b.disabled = false; });
+  };
   $('#urSave').onclick = function () { save('urgent', { buttons: $('#urB').checked, template: $('#urT').value }, this); };
   $('#lsSave').onclick = function () {
     var b = this;
