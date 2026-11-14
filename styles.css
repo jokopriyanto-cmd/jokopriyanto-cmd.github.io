@@ -395,3 +395,12 @@ body.hasapp main{padding-top:6px}
 .spin.xs{width:12px;height:12px;border-width:2px;display:inline-block;vertical-align:-2px}
 .pthumb{display:block;width:120px;height:90px;object-fit:cover;border-radius:8px;margin-bottom:4px}
 #t_picks .att,#cPicks .att{margin-bottom:8px}
+/* v2.5.3: tombol pilih aplikasi lebih ringkas */
+#appbar{padding:6px 14px}
+.appseg{padding:3px;border-radius:12px;gap:4px}
+.appseg button{min-height:38px;padding:6px 10px;gap:7px;border-radius:9px;justify-content:center}
+.appseg button svg{width:18px;height:18px}
+.appseg button b{font-size:14px}
+.appseg button small{display:none}
+.appseg em{top:3px;right:5px;min-width:17px;height:17px;font-size:10.5px}
+@media (min-width:1024px){ #appbar{padding:10px 28px 8px} #appbar .appseg{max-width:420px} }
