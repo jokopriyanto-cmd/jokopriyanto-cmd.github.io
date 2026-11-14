@@ -1,7 +1,7 @@
 /* Service worker VTAG Otoklix. Ganti VERSION setiap rilis → aplikasi di HP otomatis update. */
-const VERSION = '2.4.5';
+const VERSION = '2.5.0';
 const CACHE = 'vtag-' + VERSION;
-const ASSETS = ['./', 'index.html', 'app.js', 'styles.css', 'manifest.webmanifest',
+const ASSETS = ['./', 'index.html', 'app.js', 'ts.js', 'styles.css', 'manifest.webmanifest',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png', 'icons/apple-touch-icon.png',
   'icons/favicon-32.png', 'icons/logo-otoklix.png', 'icons/logo-otoacademy.png'];
 
@@ -82,7 +82,7 @@ async function handlePush() {
   }
   const list = fresh.slice(0, 4);
   if (fresh.length > 4) list[3] = { caseId: '', type: 'more', message: (fresh.length - 3) + ' notifikasi lainnya. Ketuk untuk membuka aplikasi.', ts: fresh[3].ts };
-  await Promise.all(list.map(e => self.registration.showNotification('VTAG Otoklix', Object.assign({
+  await Promise.all(list.map(e => self.registration.showNotification(e.ts_app ? 'Tech Support Otoklix' : 'VTAG Otoklix', Object.assign({
     body: e.message, tag: 'vt-' + e.caseId + '-' + e.type, data: { caseId: e.caseId }, timestamp: Date.now()
   }, NOTIF_OPT))));
 }

@@ -4,7 +4,7 @@
 'use strict';
 
 var CONFIG = {
-  VERSION: '2.4.5',
+  VERSION: '2.5.0',
   API_URL: 'https://script.google.com/macros/s/AKfycbyGcLEZZ2Xm0nYl2gq53Qng-KmOUYSqvCrlwtAfRrxROwIREyGL3JyG9CQPlT_9QBYq1Q/exec',
   POLL_MS: 20000,            // cek data baru tiap 20 detik
   CHUNK: 2359296,            // 9 x 256 KB per potongan upload
@@ -137,7 +137,7 @@ function api(action) {
   var args = Array.prototype.slice.call(arguments, 1);
   if (!navigator.onLine) return Promise.reject(new AppError('Tidak ada koneksi internet.', 'net'));
   var ctrl = window.AbortController ? new AbortController() : null;
-  var ms = action === 'uploadChunk' ? 150000 : action === 'printCase' ? 240000 : 70000;
+  var ms = action === 'uploadChunk' || action === 'tsUploadChunk' ? 150000 : action === 'printCase' || action === 'tsPdf' ? 240000 : 70000;
   var timer = setTimeout(function () { if (ctrl) ctrl.abort(); }, ms);
   return fetch(CONFIG.API_URL, {
     method: 'POST', redirect: 'follow', cache: 'no-store',
@@ -456,9 +456,11 @@ var Back = {
       if (!modalLock) { closeModal(); if (sendSheetId) { sendSheetId = null; renderPill(); } }
       Back.arm(); return;
     }
-    if (S.tab !== 'home') {
+    var homeTab = window.inTs && inTs() ? tsHome() : 'home';
+    if (S.tab === 'ts:case') { TSA.caseId = null; TSA.caseData = null; go(TSA.back || homeTab); Back.arm(); return; }
+    if (S.tab !== homeTab) {
       var wasInput = S.tab === 'input';
-      go('home');
+      go(homeTab);
       if (wasInput) toast('Draft tersimpan otomatis. Lanjutkan kapan saja dari menu Input.');
       Back.arm(); return;
     }
@@ -515,6 +517,8 @@ function loadBoot() {
     showApp();
     if (b.mustChange) showPwModal(true);
     else if (S.openAfterBoot) { openCase(S.openAfterBoot); S.openAfterBoot = null; }
+    else if (window.tsAccess && tsAccess() && !store(tsAppKey())) tsChooser(true);
+    if (window.tsAccess && tsAccess()) tsLoad();
     startPolling();
     resumeSending();
     saveAuthMeta(); markPushSeen();
@@ -528,6 +532,7 @@ function loadBoot() {
 
 function applyBoot(b) {
   S.boot = b; S.user = b.user; T = b.status; S.dash = b.dash; S.events = b.events || []; S.rev = b.rev;
+  if (window.tsInitApp) { tsCached(); tsInitApp(); }
 }
 
 /* ================= login ================= */
@@ -576,6 +581,7 @@ function onAuthLost() {
   if (!S.token) return;
   S.token = null; store('vt_token', null); sstore('vt_token', null); store('vt_boot', null);
   stopPolling(); DB.del('meta', 'auth').catch(function () {});
+  if (window.tsReset) { tsReset(); S.app = null; }
   showLogin('Sesi berakhir (password direset atau akun dinonaktifkan). Silakan login lagi.');
 }
 
@@ -590,6 +596,7 @@ function doLogout() {
     busyModal('Keluar…');
     Promise.race([pushOff().then(function () { return api('logout'); }).catch(function () {}), sleep(5000)]).then(function () {
       S.token = null; store('vt_token', null); sstore('vt_token', null); store('vt_boot', null);
+      if (window.tsReset) { tsReset(); S.app = null; }
       stopPolling(); closeModal(); showLogin();
     });
   });
@@ -601,14 +608,16 @@ function showApp() {
   if (!$('#app')) {
     $('#root').innerHTML =
       '<div id="app"><aside class="side" id="side"></aside>' +
-      '<header class="top"><img class="logo" alt="Otoklix" src="icons/logo-otoklix.png"><div class="sp"></div>' +
+      '<header class="top"><img class="logo" alt="Otoklix" src="icons/logo-otoklix.png"><button class="appsw hidden" id="btnApp" aria-label="Ganti aplikasi"></button><div class="sp"></div>' +
       '<button class="hbtn" id="btnBell" aria-label="Notifikasi">' + ic('bell') + '<span class="dot hidden" id="bellDot"></span></button>' +
       '<button class="avatar" id="btnMe" aria-label="Akun"></button></header>' +
       '<div id="netbar"></div><main id="main"></main>' +
       '<nav class="bottom"><div class="in" id="tabs"></div></nav><div id="pillHost"></div></div>';
     $('#btnMe').onclick = showAccount;
     $('#btnBell').onclick = showNotifs;
+    $('#btnApp').onclick = function () { tsChooser(false); };
   }
+  if (window.renderApsw) renderApsw();
   $('#btnMe').textContent = initials(S.user.nama);
   Back.arm();
   refreshLocalDrafts();
@@ -644,18 +653,20 @@ function tabsDef() {
 
 function renderNav() {
   if (!$('#tabs') || !S.user) return;
-  var defs = tabsDef();
+  var ts = window.inTs && inTs();
+  document.body.classList.toggle('tsmode', !!ts);
+  var defs = ts ? tsTabsDef() : tabsDef();
   $('#tabs').innerHTML = defs.map(function (t) {
     return '<button data-k="' + t.k + '" class="' + (S.tab === t.k ? 'on ' : '') + (t.cta ? 'cta' : '') + '">' +
       (t.cta ? '<span class="ic">' + ic(t.i, 'lg') + '</span>' : ic(t.i)) + '<span>' + esc(t.l) + '</span>' +
       (t.n ? '<span class="badge">' + t.n + '</span>' : '') + '</button>';
   }).join('');
   var side = defs.slice();
-  if (isManager()) { side = side.filter(function (x) { return x.k !== 'admin'; }); adminTabs().forEach(function (a) { side.push({ k: 'adm:' + a[0], l: a[1], i: a[2] }); }); }
+  if (isManager() && !ts) { side = side.filter(function (x) { return x.k !== 'admin'; }); adminTabs().forEach(function (a) { side.push({ k: 'adm:' + a[0], l: a[1], i: a[2] }); }); }
   side.sort(function (a, b) { return (b.cta ? 1 : 0) - (a.cta ? 1 : 0); });
   $('#side').innerHTML = '<img alt="Otoklix" src="icons/logo-otoklix.png">' + side.map(function (t) {
     var on = S.tab === t.k || (S.tab === 'admin' && t.k === 'adm:' + S.adminTab);
-    return '<button data-k="' + t.k + '" class="' + (on ? 'on ' : '') + (t.cta ? 'cta' : '') + '">' + ic(t.i) + '<span>' + (t.cta ? (role() === 'mekanik_sw' ? 'Input eskalasi baru' : 'Input kasus baru') : esc(t.l)) + '</span>' + (t.n ? '<span class="badge">' + t.n + '</span>' : '') + '</button>';
+    return '<button data-k="' + t.k + '" class="' + (on ? 'on ' : '') + (t.cta ? 'cta' : '') + '">' + ic(t.i) + '<span>' + (t.cta && !ts ? (role() === 'mekanik_sw' ? 'Input eskalasi baru' : 'Input kasus baru') : esc(t.cta && ts ? (tsStaff() ? 'Catat kasus selesai' : 'Minta bantuan') : t.l)) + '</span>' + (t.n ? '<span class="badge">' + t.n + '</span>' : '') + '</button>';
   }).join('') + '<div class="ver">Versi ' + CONFIG.VERSION + '</div>';
   $$('#tabs button, #side button').forEach(function (b) {
     b.onclick = function () {
@@ -676,6 +687,8 @@ function go(k, opts) {
 function renderView() {
   var m = $('#main');
   if (!m || !S.user) return;
+  if (String(S.tab).indexOf('ts:') === 0) { if (window.tsRender && tsAccess()) return tsRender(m); S.tab = 'home'; }
+  document.body.classList.remove('tsmode');
   if (S.tab === 'home') return renderHome(m);
   if (S.tab === 'data') return renderList(m, 'data');
   if (S.tab === 'validasi') return renderList(m, 'validasi');
@@ -749,6 +762,7 @@ function syncNow() {
   syncing = true;
   return api('sync', S.rev).then(function (r) {
     S.lastSync = Date.now();
+    if (r.ts && window.tsOnInfo) tsOnInfo(r.ts);
     if (r.same) return;
     S.rev = r.rev;
     if (r.dash) S.dash = r.dash;
@@ -758,21 +772,27 @@ function syncNow() {
     if (r.events) { S.events = r.events; notifyNew(); }
     try { var b = S.boot; b.dash = S.dash; b.events = S.events; b.rev = S.rev; store('vt_boot', JSON.stringify(b)); } catch (e) { /* */ }
     renderNav(); renderBell();
-    if (S.tab !== 'input' && S.tab !== 'admin' && S.tab !== 'bulk') renderView();
+    if (S.tab !== 'input' && S.tab !== 'admin' && S.tab !== 'bulk' && String(S.tab).indexOf('ts:') !== 0) renderView();
+    else if (window.inTs && inTs() && S.tab === 'ts:inbox' && TSA.inbox === 'esk' && !$('#ov')) renderView();
   }).catch(function () { /* diam: dicoba lagi berikutnya */ }).finally(function () { syncing = false; renderNetbar(); });
 }
 
 function seenKey() { return 'vt_seen_' + S.user.username; }
-function unreadEvents() { var seen = store(seenKey()) || ''; return S.events.filter(function (e) { return e.ts > seen; }); }
+function allEvents() {
+  var ts = window.TSA && TSA.events && TSA.events.length ? TSA.events : null;
+  return ts ? S.events.concat(ts).sort(function (a, b) { return a.ts < b.ts ? 1 : -1; }).slice(0, 60) : S.events;
+}
+function unreadEvents() { var seen = store(seenKey()) || ''; return allEvents().filter(function (e) { return e.ts > seen; }); }
 function renderBell() {
   var n = unreadEvents().length, d = $('#bellDot');
   if (!d) return;
   d.textContent = n > 9 ? '9+' : n; d.classList.toggle('hidden', !n);
 }
-function evIcon(t) { return t === 'validated' || t === 'approved' ? 'check' : t === 'submitted_vf' ? 'send' : t === 'revisi' ? 'undo' : t === 'after_done' ? 'box' : t === 'assigned' ? 'users' : t === 'forwarded' ? 'send' : t === 'esk_done' ? 'check' : 'inbox'; }
+function evIcon(t) { if (String(t).indexOf('ts_') === 0) return t === 'ts_new' ? 'tool' : t === 'ts_closed' ? 'check' : t === 'ts_ai' ? 'zap' : 'inbox'; return t === 'validated' || t === 'approved' ? 'check' : t === 'submitted_vf' ? 'send' : t === 'revisi' ? 'undo' : t === 'after_done' ? 'box' : t === 'assigned' ? 'users' : t === 'forwarded' ? 'send' : t === 'esk_done' ? 'check' : 'inbox'; }
 function markPushSeen() {
-  if (!S.events.length) return;
-  var ts = S.events[0].ts;
+  var ev = allEvents();
+  if (!ev.length) return;
+  var ts = ev[0].ts;
   DB.get('meta', 'pushSeen').then(function (x) { if (!x || x.ts < ts) return DB.put('meta', { id: 'pushSeen', ts: ts }); }).catch(function () {});
 }
 function notifyNew() {
@@ -796,19 +816,20 @@ function showNotifs() {
   var pb = pushBanner();
   modal('<div class="row" style="justify-content:space-between"><h3>Notifikasi</h3><button class="btn sm sec" id="nRead">Tandai dibaca</button></div>' +
     (pb ? '<div style="margin-top:12px">' + pb + '</div>' : canAsk ? '<div class="msg info" style="margin-top:12px">' + ic('bell') + '<span>Aktifkan notifikasi HP supaya tahu saat ada kasus baru / hasil validasi. <button class="btn sm" id="nPerm" style="margin-top:8px">Aktifkan notifikasi</button></span></div>' : '') +
-    '<div style="margin-top:10px">' + (S.events.length ? S.events.map(function (e, i) {
+    '<div style="margin-top:10px">' + (allEvents().length ? allEvents().map(function (e, i) {
       return '<button class="notif ' + (e.ts > seen ? 'unread' : '') + '" data-i="' + i + '"><span class="ni">' + ic(evIcon(e.type)) + '</span><span class="nt">' + esc(e.message) + '<small>' + esc(ago(e.ts)) + ' · ' + esc(e.outlet) + '</small></span></button>';
     }).join('') : '<div class="empty">' + ic('bell') + '<div>Belum ada notifikasi.</div></div>') + '</div>' +
     '<button class="btn sec block" id="nTest" style="margin-top:14px">' + ic('bell') + ' Tes notifikasi HP</button><button class="btn sec block" id="nClose" style="margin-top:8px">Tutup</button>', 'narrow');
   $('#nTest').onclick = pushDiag;
-  var markRead = function () { if (S.events.length) store(seenKey(), S.events[0].ts); renderBell(); };
+  var evs = allEvents();
+  var markRead = function () { if (evs.length) store(seenKey(), evs[0].ts); renderBell(); };
   $('#nRead').onclick = function () { markRead(); $$('.notif.unread').forEach(function (x) { x.classList.remove('unread'); }); };
   $('#nClose').onclick = function () { markRead(); closeModal(); };
   if ($('#pushGo')) $('#pushGo').onclick = pushDiag;
   if ($('#nPerm')) $('#nPerm').onclick = function () {
     Notification.requestPermission().then(function (p) { toast(p === 'granted' ? 'Notifikasi HP aktif.' : 'Notifikasi tidak diizinkan.'); showNotifs(); });
   };
-  $$('.notif').forEach(function (b) { b.onclick = function () { markRead(); var e = S.events[+b.dataset.i]; closeModal(); openCase(e.caseId); }; });
+  $$('.notif').forEach(function (b) { b.onclick = function () { markRead(); var e = evs[+b.dataset.i]; closeModal(); openCase(e.caseId); }; });
 }
 
 /* ================= beranda ================= */
@@ -1075,6 +1096,7 @@ function fileLink(f, kind) {
 }
 
 function openCase(id) {
+  if (/^TS-/.test(String(id || '')) && window.tsOpen) { if (tsAccess()) tsOpen(id); else toast('Akun ini tidak memakai Tech Support.'); return; }
   modal('<div class="empty"><div class="spin" style="margin:0 auto 10px"></div>Memuat…</div>');
   apiRetry('getCase', id).then(function (d) { renderCase(d); }, function (e) {
     closeModal(); toast(errMsg(e));
@@ -1706,7 +1728,7 @@ function wake(on) {
   } catch (e) { /* */ }
 }
 function anySending() { return Object.keys(Sender.active).length > 0; }
-function busy() { return anySending() || S.tab === 'input'; }
+function busy() { return anySending() || S.tab === 'input' || !!(window.tsBusy && tsBusy()); }
 
 function waitOnline(prog) {
   if (prog) { prog.waiting = true; renderSendUI(); }
@@ -1954,6 +1976,7 @@ function renderAdmin(m) {
   else if (S.adminTab === 'campaign') renderCampaigns(el);
   else if (S.adminTab === 'eskalasi') renderEskForm(el);
   else if (S.adminTab === 'bulk') renderBulk(el);
+  else if (S.adminTab === 'ts' && window.renderTsAdmin) renderTsAdmin(el);
   else renderUsers(el);
 }
 function renderBulkPage(m) {
@@ -2096,7 +2119,7 @@ function roleName(r) { return { mekanik: 'Mekanik', foreman: 'Foreman', partman:
 function serverAtLeast(v) { return !!(S.boot && S.boot.version && S.boot.version >= v); }
 function adminTabs() {
   var t = [['users', 'Pengguna', 'users'], ['settings', 'Pengaturan', 'gear'], ['export', 'Export Excel', 'download']];
-  if (isAdmin()) { t.push(['campaign', 'Campaign', 'box']); t.push(['eskalasi', 'Form Eskalasi', 'warn']); t.push(['bulk', 'Input massal', 'list']); }
+  if (isAdmin()) { t.push(['campaign', 'Campaign', 'box']); t.push(['eskalasi', 'Form Eskalasi', 'warn']); t.push(['bulk', 'Input massal', 'list']); if (serverAtLeast('2.5')) t.push(['ts', 'Tech Support', 'tool']); }
   return t;
 }
 function draftsAll() { return rows().filter(function (r) { return r.status === T.DRAFT; }); }
