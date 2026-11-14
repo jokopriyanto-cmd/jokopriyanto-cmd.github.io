@@ -368,9 +368,12 @@ input.ocrfill{box-shadow:0 0 0 3px rgba(22,163,74,.35);transition:box-shadow .3s
 @media (max-width:359px){ .appsw span{display:none} .appsw{padding:8px} }
 @media (max-width:400px){ .appsw{font-size:12.5px;padding:7px 9px;margin-left:2px} header.top img.logo{height:26px} }
 /* v2.5.1: pilihan aplikasi besar, lampiran ala VTAG, log instan */
-#appbar{max-width:640px;margin:0 auto;padding:10px 14px 0}
+#appbar{position:sticky;top:calc(var(--hdr-h,59px) + var(--safe-t));z-index:29;background:var(--bg);padding:8px 14px 8px;box-shadow:0 6px 10px -8px rgba(20,30,70,.18)}
+#appbar .appseg{max-width:612px;margin:0 auto}
+body.hasapp .netbar{top:calc(var(--hdr-h,59px) + var(--safe-t) + var(--app-h,74px))}
+body.hasapp main{padding-top:6px}
 .appseg{display:grid;grid-template-columns:1fr 1fr;gap:6px;background:#fff;border:1px solid var(--line);border-radius:16px;padding:5px;box-shadow:0 2px 8px rgba(20,30,70,.05)}
-.appseg button{position:relative;display:flex;align-items:center;gap:10px;border:0;border-radius:12px;padding:10px 12px;min-height:58px;background:none;color:var(--muted);cursor:pointer;text-align:left}
+.appseg button{position:relative;display:flex;align-items:center;gap:10px;border:0;border-radius:12px;padding:8px 12px;min-height:54px;background:none;color:var(--muted);cursor:pointer;text-align:left}
 .appseg button svg{width:24px;height:24px;flex:none}
 .appseg button span{display:flex;flex-direction:column;line-height:1.2;min-width:0}
 .appseg button b{font-size:15px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -380,7 +383,7 @@ input.ocrfill{box-shadow:0 0 0 3px rgba(22,163,74,.35);transition:box-shadow .3s
 .appseg button:not(.on):active{background:var(--gray-bg)}
 .appseg em{position:absolute;top:6px;right:8px;background:var(--bad);color:#fff;font-style:normal;font-weight:800;font-size:11px;border-radius:99px;min-width:19px;height:19px;padding:0 5px;display:flex;align-items:center;justify-content:center}
 @media (max-width:370px){ .appseg button{padding:8px;gap:7px} .appseg button svg{width:20px;height:20px} .appseg button b{font-size:13.5px} .appseg button small{font-size:11px} }
-@media (min-width:1024px){ #appbar{max-width:1180px;padding:18px 28px 0} .appseg{max-width:560px} }
+@media (min-width:1024px){ #appbar{padding:12px 28px 10px} #appbar .appseg{max-width:560px;margin:0} }
 .attmenu{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .pick.big{flex-direction:column;justify-content:center;min-height:86px;font-size:14px;border-radius:14px;text-align:center;gap:6px;padding:10px}
 .pick.big svg{width:26px;height:26px}

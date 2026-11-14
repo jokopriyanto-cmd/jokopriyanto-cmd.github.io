@@ -52,13 +52,15 @@ function tsSwitch(app) {
 function renderApsw() {
   var b = $('#appbar');
   if (!b) return;
-  if (!tsAccess()) { b.classList.add('hidden'); b.innerHTML = ''; return; }
-  b.classList.remove('hidden');
+  if (!tsAccess()) { b.classList.add('hidden'); b.innerHTML = ''; document.body.classList.remove('hasapp'); return; }
+  b.classList.remove('hidden'); document.body.classList.add('hasapp');
+  var hd = $('header.top'); if (hd && hd.offsetHeight) document.documentElement.style.setProperty('--hdr-h', (hd.offsetHeight - 1) + 'px');
   var n = TSA.list.filter(function (r) { return tsStaff() ? r.status === 'Baru' || (r.urgent && tsIsOpen(r.status)) : r.tuser === S.user.username && tsIsOpen(r.status); }).length;
   b.innerHTML = '<div class="appseg" role="tablist" aria-label="Pilih aplikasi">' +
     '<button role="tab" data-app="vtag" class="vt' + (inTs() ? '' : ' on') + '" aria-selected="' + !inTs() + '">' + ic('shield') + '<span><b>VTAG Warranty</b><small>Khusus VinFast</small></span></button>' +
     '<button role="tab" data-app="ts" class="ts' + (inTs() ? ' on' : '') + '" aria-selected="' + inTs() + '">' + ic('tool') + '<span><b>Tech Support</b><small>Semua merek</small></span>' + (n && !inTs() ? '<em>' + n + '</em>' : '') + '</button></div>';
   $$('[data-app]', b).forEach(function (x) { x.onclick = function () { tsSwitch(x.dataset.app); }; });
+  if (b.offsetHeight) document.documentElement.style.setProperty('--app-h', b.offsetHeight + 'px');
 }
 function tsChooser(first) {
   var u = S.user;
@@ -86,7 +88,7 @@ function tsLoad(force) {
   }).finally(function () { TSA.loading = null; });
   return TSA.loading;
 }
-function tsReset() { TSA.boot = null; TSA.list = []; TSA.events = []; TSA.rev = null; TSA.form = null; TSA.rec = null; TSA.caseId = null; TSA.caseData = null; TSA.thumbs = {}; TSA.owner = null; S.techNames = null; }
+function tsReset() { document.body.classList.remove('hasapp'); TSA.boot = null; TSA.list = []; TSA.events = []; TSA.rev = null; TSA.form = null; TSA.rec = null; TSA.caseId = null; TSA.caseData = null; TSA.thumbs = {}; TSA.owner = null; S.techNames = null; }
 function tsCached() {
   if (!S.user) return;
   if (TSA.owner && TSA.owner !== S.user.username) { tsReset(); S.app = null; }
