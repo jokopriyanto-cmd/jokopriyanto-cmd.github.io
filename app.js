@@ -4,7 +4,7 @@
 'use strict';
 
 var CONFIG = {
-  VERSION: '2.5.0',
+  VERSION: '2.5.1',
   API_URL: 'https://script.google.com/macros/s/AKfycbyGcLEZZ2Xm0nYl2gq53Qng-KmOUYSqvCrlwtAfRrxROwIREyGL3JyG9CQPlT_9QBYq1Q/exec',
   POLL_MS: 20000,            // cek data baru tiap 20 detik
   CHUNK: 2359296,            // 9 x 256 KB per potongan upload
@@ -284,7 +284,7 @@ function drawWatermark(ctx, w, h, info, t) {
   var pad = Math.round(base * 0.7), lh = Math.round(base * 1.32);
   var lines = [
     [fmtStamp(t) + (info.src === 'gal' ? '  (galeri)' : ''), '800', base * 1.15, '#ffffff'],
-    [[info.vin ? 'VIN ' + info.vin : 'VIN -', info.nopol].filter(Boolean).join('  ·  '), '600', base * 0.92, 'rgba(255,255,255,.95)'],
+    [info.line2 || [info.vin ? 'VIN ' + info.vin : 'VIN -', info.nopol].filter(Boolean).join('  ·  '), '600', base * 0.92, 'rgba(255,255,255,.95)'],
     [[info.outlet, info.user, info.label].filter(Boolean).join('  ·  '), '500', base * 0.86, 'rgba(255,255,255,.9)']
   ];
   var boxH = pad * 2 + lh * lines.length;
@@ -302,7 +302,7 @@ function drawWatermark(ctx, w, h, info, t) {
     ctx.fillText(l[0], x, h - boxH + pad + i * lh);
   });
   // label merek di pojok kanan atas
-  var tag = 'OTOKLIX · VTAG', tfs = Math.max(11, Math.round(base * 0.72));
+  var tag = info.tag || 'OTOKLIX · VTAG', tfs = Math.max(11, Math.round(base * 0.72));
   ctx.shadowBlur = 0;
   ctx.font = '800 ' + tfs + 'px system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif';
   var tw = ctx.measureText(tag).width, bx = w - pad - tw - tfs, by = pad;
@@ -608,14 +608,13 @@ function showApp() {
   if (!$('#app')) {
     $('#root').innerHTML =
       '<div id="app"><aside class="side" id="side"></aside>' +
-      '<header class="top"><img class="logo" alt="Otoklix" src="icons/logo-otoklix.png"><button class="appsw hidden" id="btnApp" aria-label="Ganti aplikasi"></button><div class="sp"></div>' +
+      '<header class="top"><img class="logo" alt="Otoklix" src="icons/logo-otoklix.png"><div class="sp"></div>' +
       '<button class="hbtn" id="btnBell" aria-label="Notifikasi">' + ic('bell') + '<span class="dot hidden" id="bellDot"></span></button>' +
       '<button class="avatar" id="btnMe" aria-label="Akun"></button></header>' +
-      '<div id="netbar"></div><main id="main"></main>' +
+      '<div id="appbar" class="hidden"></div><div id="netbar"></div><main id="main"></main>' +
       '<nav class="bottom"><div class="in" id="tabs"></div></nav><div id="pillHost"></div></div>';
     $('#btnMe').onclick = showAccount;
     $('#btnBell').onclick = showNotifs;
-    $('#btnApp').onclick = function () { tsChooser(false); };
   }
   if (window.renderApsw) renderApsw();
   $('#btnMe').textContent = initials(S.user.nama);

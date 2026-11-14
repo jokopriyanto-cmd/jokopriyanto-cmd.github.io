@@ -367,3 +367,28 @@ input.ocrfill{box-shadow:0 0 0 3px rgba(22,163,74,.35);transition:box-shadow .3s
 }
 @media (max-width:359px){ .appsw span{display:none} .appsw{padding:8px} }
 @media (max-width:400px){ .appsw{font-size:12.5px;padding:7px 9px;margin-left:2px} header.top img.logo{height:26px} }
+/* v2.5.1: pilihan aplikasi besar, lampiran ala VTAG, log instan */
+#appbar{max-width:640px;margin:0 auto;padding:10px 14px 0}
+.appseg{display:grid;grid-template-columns:1fr 1fr;gap:6px;background:#fff;border:1px solid var(--line);border-radius:16px;padding:5px;box-shadow:0 2px 8px rgba(20,30,70,.05)}
+.appseg button{position:relative;display:flex;align-items:center;gap:10px;border:0;border-radius:12px;padding:10px 12px;min-height:58px;background:none;color:var(--muted);cursor:pointer;text-align:left}
+.appseg button svg{width:24px;height:24px;flex:none}
+.appseg button span{display:flex;flex-direction:column;line-height:1.2;min-width:0}
+.appseg button b{font-size:15px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.appseg button small{font-size:12px}
+.appseg button.vt.on{background:var(--blue);color:#fff} .appseg button.ts.on{background:var(--orange-d);color:#fff}
+.appseg button.on b,.appseg button.on small{color:#fff}
+.appseg button:not(.on):active{background:var(--gray-bg)}
+.appseg em{position:absolute;top:6px;right:8px;background:var(--bad);color:#fff;font-style:normal;font-weight:800;font-size:11px;border-radius:99px;min-width:19px;height:19px;padding:0 5px;display:flex;align-items:center;justify-content:center}
+@media (max-width:370px){ .appseg button{padding:8px;gap:7px} .appseg button svg{width:20px;height:20px} .appseg button b{font-size:13.5px} .appseg button small{font-size:11px} }
+@media (min-width:1024px){ #appbar{max-width:1180px;padding:18px 28px 0} .appseg{max-width:560px} }
+.attmenu{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.pick.big{flex-direction:column;justify-content:center;min-height:86px;font-size:14px;border-radius:14px;text-align:center;gap:6px;padding:10px}
+.pick.big svg{width:26px;height:26px}
+.pick.big input{display:none}
+.lmsg.pend .lb{opacity:.85}
+.lmsg.perr .lb{border-color:var(--bad)!important;background:var(--bad-bg)!important;color:var(--bad)!important;cursor:pointer}
+.pst{font-size:11px;color:var(--muted);display:inline-flex;align-items:center;gap:5px}
+.pst.err{color:var(--bad);font-weight:700}
+.spin.xs{width:12px;height:12px;border-width:2px;display:inline-block;vertical-align:-2px}
+.pthumb{display:block;width:120px;height:90px;object-fit:cover;border-radius:8px;margin-bottom:4px}
+#t_picks .att,#cPicks .att{margin-bottom:8px}

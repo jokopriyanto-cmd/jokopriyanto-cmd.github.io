@@ -22,7 +22,8 @@ function tsStaff() { return TSA.boot ? !!TSA.boot.me.staff : !!(S.boot && S.boot
 function tsCfg() { return (TSA.boot && TSA.boot.cfg) || { brands: [], systems: [], urgent: {}, ai: {}, team: [], open: ['Baru', 'Analysis', 'Pending part'], final: ['Resolved', 'Not resolved', 'Dirujuk ke dealer'] }; }
 function tsIsOpen(st) { return tsCfg().open.indexOf(st) >= 0; }
 function tsIsFinal(st) { return tsCfg().final.indexOf(st) >= 0; }
-function tsBusy() { return S.tab === 'ts:new' || S.tab === 'ts:record' || TSA.uploading > 0; }
+function tsFormOpen() { return S.tab === 'ts:new' || S.tab === 'ts:record'; }
+function tsBusy() { return tsFormOpen() || TSA.uploading > 0 || (TSA.q && TSA.q.length > 0); }
 function tsStClass(st) { return st === 'Baru' ? 'tsnew' : st === 'Analysis' ? 'pending' : st === 'Pending part' ? 'after' : st === 'Resolved' ? 'done' : st === 'Not resolved' ? 'revisi' : 'sub'; }
 function tsPill(st) { return '<span class="pill ' + tsStClass(st) + '">' + esc(st || '-') + '</span>'; }
 function tsVeh(r) { return [r.brand || r.Brand, r.model || r.Model].filter(Boolean).join(' ') || 'Kendaraan'; }
@@ -49,12 +50,15 @@ function tsSwitch(app) {
   renderApsw(); renderNav(); renderView(); renderBell(); window.scrollTo(0, 0);
 }
 function renderApsw() {
-  var b = $('#btnApp');
+  var b = $('#appbar');
   if (!b) return;
-  if (!tsAccess()) { b.classList.add('hidden'); return; }
+  if (!tsAccess()) { b.classList.add('hidden'); b.innerHTML = ''; return; }
   b.classList.remove('hidden');
-  b.className = 'appsw ' + (inTs() ? 'ts' : 'vt');
-  b.innerHTML = ic(inTs() ? 'tool' : 'shield', 'sm') + '<span>' + (inTs() ? 'Tech Support' : 'VTAG Warranty') + '</span>' + '<svg class="i xs" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>';
+  var n = TSA.list.filter(function (r) { return tsStaff() ? r.status === 'Baru' || (r.urgent && tsIsOpen(r.status)) : r.tuser === S.user.username && tsIsOpen(r.status); }).length;
+  b.innerHTML = '<div class="appseg" role="tablist" aria-label="Pilih aplikasi">' +
+    '<button role="tab" data-app="vtag" class="vt' + (inTs() ? '' : ' on') + '" aria-selected="' + !inTs() + '">' + ic('shield') + '<span><b>VTAG Warranty</b><small>Khusus VinFast</small></span></button>' +
+    '<button role="tab" data-app="ts" class="ts' + (inTs() ? ' on' : '') + '" aria-selected="' + inTs() + '">' + ic('tool') + '<span><b>Tech Support</b><small>Semua merek</small></span>' + (n && !inTs() ? '<em>' + n + '</em>' : '') + '</button></div>';
+  $$('[data-app]', b).forEach(function (x) { x.onclick = function () { tsSwitch(x.dataset.app); }; });
 }
 function tsChooser(first) {
   var u = S.user;
@@ -62,7 +66,7 @@ function tsChooser(first) {
     '<button class="appcard vt' + (inTs() ? '' : ' on') + '" data-app="vtag"><span class="ac-ic">' + ic('shield', 'lg') + '</span><span class="ac-t"><b>VTAG Warranty</b><small>Khusus VinFast</small><span>Investigasi warranty, pengajuan VTAG, campaign, dan eskalasi.</span></span></button>' +
     '<button class="appcard ts' + (inTs() ? ' on' : '') + '" data-app="ts"><span class="ac-ic">' + ic('tool', 'lg') + '</span><span class="ac-t"><b>Tech Support</b><small>Semua merek</small><span>Minta bantuan troubleshooting ke Technical Support. Ada saran awal, tombol WhatsApp untuk kasus urgent, dan PDF report.</span></span></button>' +
     '<div class="msg info" style="margin-top:12px">' + ic('warn') + '<span>' + esc(TS_INFO) + '</span></div>' +
-    '<div class="small muted" style="text-align:center;margin-top:8px">Satu akun untuk dua aplikasi. Data keduanya terpisah. Ganti aplikasi kapan saja lewat tombol di bagian atas.</div>', 'narrow');
+    '<div class="small muted" style="text-align:center;margin-top:8px">Satu akun untuk dua aplikasi. Data keduanya terpisah. Ganti aplikasi kapan saja lewat tombol VTAG Warranty / Tech Support di bagian atas.</div>', 'narrow');
   $$('[data-app]').forEach(function (b) { b.onclick = function () { tsSwitch(b.dataset.app); }; });
 }
 
@@ -73,8 +77,8 @@ function tsLoad(force) {
   TSA.loading = apiRetry('tsBoot').then(function (b) {
     TSA.boot = b; TSA.list = b.list || []; TSA.events = b.events || []; TSA.rev = b.rev; TSA.err = '';
     try { store('vt_tsboot_' + S.user.username, JSON.stringify(b)); } catch (e) { /* */ }
-    tsNotifyNew(true);
-    if (inTs()) { if (S.tab === 'ts:home' && tsStaff()) S.tab = 'ts:inbox'; renderNav(); if (!tsBusy() && S.tab !== 'ts:case') renderView(); }
+    tsNotifyNew(true); renderApsw();
+    if (inTs()) { if (S.tab === 'ts:home' && tsStaff()) S.tab = 'ts:inbox'; renderNav(); if (!tsFormOpen() && S.tab !== 'ts:case') renderView(); }
     renderBell();
   }, function (e) {
     TSA.err = errMsg(e);
@@ -112,11 +116,11 @@ function tsSyncNow() {
     TSA.boot.list = TSA.list; TSA.boot.events = TSA.events; TSA.boot.rev = TSA.rev;
     try { store('vt_tsboot_' + S.user.username, JSON.stringify(TSA.boot)); } catch (e) { /* */ }
     tsNotifyNew(false);
-    renderBell();
+    renderBell(); renderApsw();
     if (inTs()) {
       renderNav();
       if (S.tab === 'ts:case' && TSA.caseId) tsRefreshCase();
-      else if (!tsBusy() && !$('#ov')) renderView();
+      else if (!tsFormOpen() && !$('#ov')) renderView();
     }
   }).catch(function () { /* dicoba lagi */ }).finally(function () { tsSyncing = false; });
 }
@@ -266,36 +270,109 @@ function bindInboxTop(m) {
   $$('[data-go]', m).forEach(function (b) { b.onclick = function () { go(b.dataset.go); }; });
 }
 
-/* ---------------- foto & upload ---------------- */
-var TS_PHOTOS = [['depan', 'Foto tampak depan', 'image/*', true], ['problem', 'Foto problem', 'image/*', true], ['extra1', 'Video / scan / foto tambahan', 'image/*,video/*,application/pdf,.txt,.csv,.log,.zip', false], ['extra2', 'Lampiran tambahan 2', 'image/*,video/*,application/pdf,.txt,.csv,.log,.zip', false]];
-function tsPickHtml(F, key, label, accept, cam) {
-  var f = F.files[key];
-  return '<div class="tspick' + (f ? ' have' : '') + '" data-k="' + key + '">' +
-    (f && f.thumb ? '<img src="' + esc(f.thumb) + '" alt="">' : '<span class="pi">' + ic(/video/.test(accept) && !f ? 'clip' : f ? 'check' : 'camera') + '</span>') +
-    '<span class="pl">' + esc(label) + (f ? '<small>' + esc(f.name) + ' · ' + fmtSize(f.size) + '</small>' : '<small>' + (cam ? 'Ketuk untuk foto / pilih' : 'Opsional') + '</small>') + '</span>' +
-    (f ? '<button type="button" class="xbtn" data-rm="' + key + '">Hapus</button>' : '') +
-    '<input type="file" accept="' + esc(accept) + '"></div>';
+/* ---------------- foto & video (kamera langsung, kompres & watermark di latar) ---------------- */
+var TS_PHOTOS = [
+  { key: 'depan', label: 'Foto tampak depan', kind: 'image', hint: 'Nopol dibaca otomatis dari foto ini' },
+  { key: 'problem', label: 'Foto problem', kind: 'image' },
+  { key: 'video', label: 'Video problem', kind: 'video', hint: 'Suara mesin, gejala, dll.' },
+  { key: 'extra1', label: 'Foto scan / file lain', kind: 'any', hint: 'Hasil scan tool, live data, PDF' }
+];
+function tsLabels(list) { var o = {}; list.forEach(function (p) { o[p.key] = p.label; }); return o; }
+function tsPickBtns(key, kind) {
+  var b = function (icon, text, accept, cam, primary) {
+    return '<label class="pick ' + (primary ? '' : 'alt') + '">' + ic(icon, 'sm') + text + '<input type="file" data-tk="' + key + '" data-src="' + (cam ? 'cam' : 'gal') + '" accept="' + accept + '"' + (cam ? ' capture="environment"' : '') + '></label>';
+  };
+  if (!isTouch()) return b('upload', 'Pilih file', kind === 'image' ? 'image/*' : kind === 'video' ? 'video/*' : '', false, true);
+  if (kind === 'image') return b('camera', 'Kamera', 'image/*', true, true) + b('folder', 'Galeri', 'image/*', false, false);
+  if (kind === 'video') return b('video', 'Rekam', 'video/*', true, true) + b('folder', 'Galeri', 'video/*', false, false);
+  return b('folder', 'File', '', false, true) + b('camera', 'Foto layar', 'image/*', true, false);
 }
-function tsBindPicks(root, F, onPick) {
-  $$('.tspick', root).forEach(function (el) {
-    var k = el.dataset.k, inp = el.querySelector('input');
-    el.onclick = function (e) { if (e.target.closest('[data-rm]') || e.target === inp) return; inp.click(); };
-    inp.onchange = function () {
-      var file = inp.files && inp.files[0];
-      if (!file) return;
-      tsPrepFile(file).then(function (p) { F.files[k] = p; if (onPick) onPick(k, file, p); });
-    };
+function tsAttsHtml(F, list) {
+  F.proc = F.proc || {};
+  return list.map(function (a) {
+    var f = F.files[a.key], pr = F.proc[a.key], ex = F.existing && F.existing[a.key];
+    var cls = pr ? 'busy' : f || ex ? 'have' : '';
+    var st;
+    if (pr) st = '<div class="fn">' + esc(pr.label) + '</div><div class="miniprog"><i style="width:' + Math.round((pr.pct || 0) * 100) + '%"></i></div>';
+    else if (f) st = '<div class="fn ok">' + ic('check', 'xs') + ' ' + esc(f.name) + ' · ' + fmtSize(f.size) + (f.origSize && f.origSize > f.size * 1.05 ? ' (dari ' + fmtSize(f.origSize) + ')' : '') + '</div>' + (f.note ? '<div class="fn">' + esc(f.note) + '</div>' : '');
+    else if (ex) st = '<div class="fn ok">' + ic('check', 'xs') + ' Sudah ada · pilih lagi untuk ganti</div>';
+    else st = '<div class="fn">' + (a.hint ? esc(a.hint) : 'Opsional') + '</div>';
+    var th = f && f.thumb ? '<img alt="" src="' + f.thumb + '">' : ic(f || ex ? 'check' : kindIcon(a.kind), 'lg');
+    return '<div class="att ' + cls + '" data-att="' + a.key + '"><div class="ai">' + th + '</div><div class="t"><b>' + esc(a.label) + '</b>' + st + '</div><div class="acts">' +
+      (pr ? (pr.cancel ? '<button type="button" class="xbtn" data-skip="' + a.key + '">Lewati</button>' : '') : tsPickBtns(a.key, a.kind) + (f ? '<button type="button" class="xbtn" data-rm="' + a.key + '">Hapus</button>' : '')) + '</div></div>';
+  }).join('');
+}
+/** Pasang daftar lampiran di elemen box; redraw dipanggil setiap ada perubahan status. */
+function tsMountAtts(box, F, list, onImage) {
+  var draw = function () {
+    if (!box.isConnected) return;
+    box.innerHTML = tsAttsHtml(F, list);
+    $$('input[type=file]', box).forEach(function (inp) { inp.onchange = function () { var f = inp.files[0]; inp.value = ''; if (f) tsPickFile(F, list, inp.dataset.tk, f, inp.dataset.src, draw, onImage); }; });
+    $$('[data-rm]', box).forEach(function (b) { b.onclick = function () { delete F.files[b.dataset.rm]; draw(); }; });
+    $$('[data-skip]', box).forEach(function (b) { b.onclick = function () { var p = F.proc[b.dataset.skip]; if (p && p.cancel) p.cancel(); }; });
+  };
+  F.redraw = draw;
+  draw();
+  return draw;
+}
+function tsWm(F, item, file, src) {
+  var v = F.v || {};
+  var t = src === 'cam' ? Date.now() : (file.lastModified && file.lastModified > 1420070400000 ? file.lastModified : Date.now());
+  var nop = String(v.nopol || ($('#t_nopol') && $('#t_nopol').value) || '').toUpperCase();
+  return { t: t, src: src, tag: 'OTOKLIX · TECH SUPPORT', line2: [[v.brand, v.model].filter(Boolean).join(' ') || 'Kendaraan', nop].filter(Boolean).join('  ·  '),
+    outlet: v.outlet || S.user.outlet, user: S.user.nama, label: item.label };
+}
+function tsPickFile(F, list, key, file, src, draw, onImage) {
+  F.proc = F.proc || {};
+  var item = list.filter(function (x) { return x.key === key; })[0] || { key: key, label: key, kind: 'any' };
+  if (!file.size) { toast('File kosong / tidak bisa dibaca. Pilih ulang.'); return; }
+  if (file.size > 500 * 1024 * 1024) { toast('File terlalu besar (maks 500 MB).'); return; }
+  var isImg = /^image\//.test(file.type || '') || (item.kind === 'image' && !file.type);
+  var isVid = /^video\//.test(file.type || '');
+  if (isImg && onImage) onImage(key, file);
+  var wmOn = opt('watermark', true);
+  F.files[key] = { blob: file, name: file.name || (key + (isImg ? '.jpg' : isVid ? '.mp4' : '')), type: file.type || 'application/octet-stream', size: file.size, origSize: file.size, thumb: '' };
+  var cur = F.files[key];
+  var done = function () { delete F.proc[key]; if (F.waiters) { F.waiters.forEach(function (w) { w(); }); F.waiters = []; } draw(); };
+  if (isImg) {
+    F.proc[key] = { pct: 0.5, label: wmOn ? 'Memberi watermark & mengompres foto…' : 'Mengompres foto…' }; draw();
+    compressImage(file, opt('kompres_foto', true), wmOn ? tsWm(F, item, file, src) : null).then(function (r) {
+      if (F.files[key] !== cur || !r) return;
+      if (r.thumb) cur.thumb = r.thumb;
+      if (r.blob) { cur.blob = r.blob; cur.name = r.name; cur.type = r.type; cur.size = r.blob.size; if (r.wm) cur.note = '🕒 Watermark ' + fmtStamp(Date.now()); }
+    }).catch(function () { /* kirim asli */ }).then(done);
+    return;
+  }
+  if (isVid && canCompressVideo() && (wmOn || (opt('kompres_video', true) && file.size >= CONFIG.VID_MIN_BYTES))) {
+    var ctrl = new AbortController(), wm = wmOn ? tsWm(F, item, file, src) : null, t0 = Date.now();
+    var verb = wm ? 'Memberi watermark video' : 'Mengompres video';
+    F.proc[key] = { pct: 0, label: verb + '… (boleh lanjut mengisi form)', cancel: function () { ctrl.abort(); } }; draw();
+    var onVis = function () { if (document.visibilityState === 'hidden') ctrl.abort(); };
+    document.addEventListener('visibilitychange', onVis);
+    var tick = throttle(draw, 700);
+    compressVideo(file, function (p, left) { if (F.proc[key]) { F.proc[key].pct = p; F.proc[key].label = verb + '… ' + Math.round(p * 100) + '% (±' + Math.ceil(left) + ' dtk, boleh lanjut mengisi)'; } tick(); }, ctrl.signal, wm).then(function (r) {
+      document.removeEventListener('visibilitychange', onVis);
+      if (F.files[key] !== cur) return;
+      if (r.thumb) cur.thumb = r.thumb;
+      if (r.out) { cur.blob = r.out.blob; cur.name = r.out.name; cur.type = r.out.type; cur.size = r.out.blob.size; cur.note = (r.out.wm ? '🕒 Watermark ditambahkan' : 'Video dikompres') + ' dalam ' + Math.round((Date.now() - t0) / 1000) + ' dtk'; }
+      else if (r.reason !== 'sudah kecil' && r.reason !== 'tidak lebih kecil') cur.note = 'Dikirim ukuran asli' + (wm ? ' tanpa watermark' : '') + (r.reason === 'batal' ? ' (dilewati)' : '');
+    }).catch(function () { /* kirim asli */ }).then(done);
+    return;
+  }
+  if (isVid && wmOn) cur.note = isIOS() ? 'Watermark video belum didukung di iPhone (dikirim asli)' : 'Dikirim ukuran asli';
+  draw();
+}
+/** Tunggu kompres foto/video selesai sebelum dikirim. */
+function tsWaitProc(F) {
+  if (!F.proc || !Object.keys(F.proc).length) return Promise.resolve();
+  return new Promise(function (res) {
+    F.waiters = F.waiters || [];
+    var chk = function () { if (!Object.keys(F.proc).length) res(); else F.waiters.push(chk); };
+    chk();
   });
-  $$('[data-rm]', root).forEach(function (b) { b.onclick = function (e) { e.stopPropagation(); delete F.files[b.dataset.rm]; if (onPick) onPick(b.dataset.rm, null, null); }; });
 }
-function tsPrepFile(file) {
-  var base = { blob: file, name: file.name || 'file', type: file.type || 'application/octet-stream', size: file.size, thumb: '' };
-  if (!/^image\//.test(file.type || '')) return Promise.resolve(base);
-  return compressImage(file, true, null).then(function (r) {
-    if (r && r.blob) return { blob: r.blob, name: r.name, type: r.type, size: r.blob.size, thumb: r.thumb || '' };
-    base.thumb = r && r.thumb || ''; return base;
-  }, function () { return base; });
-}
+function tsFilesOf(F) { var o = {}; Object.keys(F.files).forEach(function (k) { if (F.files[k] && F.files[k].blob) o[k] = F.files[k]; }); return o; }
+
 /** Upload 1 file ke folder kasus (resumable, lanjut otomatis bila koneksi putus sebentar). */
 function tsUploadFile(id, key, f, label, onProg) {
   var size = f.blob.size, off = 0, uid = null, fails = 0;
@@ -320,24 +397,55 @@ function tsUploadFile(id, key, f, label, onProg) {
   return apiRetry('tsStartUpload', id, key, f.name, f.type, size, label || '').then(function (r) { uid = r.uploadId; return step(); })
     .finally(function () { TSA.uploading = Math.max(0, TSA.uploading - 1); });
 }
-function tsUploadAll(id, files, labels, title) {
+/** Upload di latar: aplikasi tetap bisa dipakai, progres tampil di pil kecil. */
+TSA.q = [];
+function tsBgUpload(id, files, labels, onDone) {
   var keys = Object.keys(files).filter(function (k) { return files[k] && files[k].blob; });
-  if (!keys.length) return Promise.resolve({ failed: [] });
-  var failed = [], done = 0;
-  var draw = function (cur, pct) {
-    var b = $('#tsup');
-    if (b) b.innerHTML = '<div class="small muted">' + esc(cur) + '</div><div class="progress"><i style="width:' + Math.round(((done + (pct || 0)) / keys.length) * 100) + '%"></i></div><div class="small muted">' + done + ' dari ' + keys.length + ' file</div>';
-  };
-  modal('<h3>' + esc(title || 'Mengirim lampiran…') + '</h3><div class="muted small" style="margin:6px 0 10px">Jangan tutup aplikasi sampai selesai.</div><div id="tsup"></div>', 'narrow');
-  modalLock = true; wake(true);
-  return keys.reduce(function (p, k) {
-    return p.then(function () {
-      var lbl = (labels && labels[k]) || k;
-      draw(lbl, 0);
-      return tsUploadFile(id, k, files[k], lbl, function (x) { draw(lbl, x); }).then(function () { done++; delete files[k]; }, function (e) { done++; failed.push(lbl + ': ' + errMsg(e)); });
-    });
-  }, Promise.resolve()).then(function () { modalLock = false; closeModal(); wake(false); return { failed: failed }; });
+  if (!keys.length) { if (onDone) onDone({ failed: [] }); return; }
+  var job = { id: id, files: files, labels: labels || {}, keys: keys, done: 0, pct: 0, failed: [], onDone: onDone, cur: '' };
+  TSA.q.push(job);
+  tsPillDraw();
+  if (TSA.q.length === 1) tsRunQueue();
 }
+function tsRunQueue() {
+  var job = TSA.q[0];
+  if (!job) { tsPillDraw(); wake(false); return; }
+  wake(true);
+  job.keys.reduce(function (p, k) {
+    return p.then(function () {
+      job.cur = job.labels[k] || k; job.pct = 0; tsPillDraw();
+      return tsUploadFile(job.id, k, job.files[k], job.labels[k] || '', function (x) { job.pct = x; tsPillDraw(); })
+        .then(function () { job.done++; }, function (e) { job.done++; job.failed.push({ key: k, msg: errMsg(e) }); });
+    });
+  }, Promise.resolve()).then(function () {
+    TSA.q.shift();
+    var res = { failed: job.failed };
+    if (job.failed.length) { TSA.lastFail = job; toast(job.failed.length + ' lampiran gagal terkirim. Ketuk tombol merah untuk mengulang.', 7000); }
+    else toast(job.keys.length > 1 ? job.keys.length + ' lampiran terkirim.' : 'Lampiran terkirim.');
+    if (job.onDone) try { job.onDone(res); } catch (e) { /* */ }
+    if (TSA.caseId === job.id) tsRefreshCase();
+    tsSyncNow();
+    tsRunQueue();
+  });
+}
+function tsPillDraw() {
+  var host = $('#tsPill');
+  if (!host) { host = document.createElement('div'); host.id = 'tsPill'; document.body.appendChild(host); }
+  var job = TSA.q[0];
+  if (job) {
+    var all = TSA.q.reduce(function (a, j) { return a + j.keys.length; }, 0), dn = TSA.q.reduce(function (a, j) { return a + j.done; }, 0);
+    host.innerHTML = '<button class="sendpill">' + ic('upload', 'sm') + ' Mengirim lampiran ' + (dn + 1) + '/' + all + ' · ' + Math.round((job.pct || 0) * 100) + '%</button>';
+    host.firstChild.onclick = function () { toast('Mengirim ' + job.cur + '… Aplikasi boleh dipakai, jangan ditutup.'); };
+  } else if (TSA.lastFail) {
+    host.innerHTML = '<button class="sendpill err">' + ic('refresh', 'sm') + ' ' + TSA.lastFail.failed.length + ' lampiran gagal · ulangi</button>';
+    host.firstChild.onclick = function () {
+      var j = TSA.lastFail; TSA.lastFail = null;
+      var f = {}; j.failed.forEach(function (x) { f[x.key] = j.files[x.key]; });
+      tsBgUpload(j.id, f, j.labels, j.onDone);
+    };
+  } else host.innerHTML = '';
+}
+window.addEventListener('beforeunload', function (e) { if (TSA.q && TSA.q.length) { e.preventDefault(); e.returnValue = ''; } });
 
 /* ---------------- form minta bantuan (alur A) ---------------- */
 function tsEmptyForm() {
@@ -372,21 +480,17 @@ function tsRenderForm(m) {
   var F = TSA.form, v = F.v, needOutlet = S.user.outlet === '*' || isAdmin();
   m.innerHTML = '<div class="tshead"><div><h1>Minta bantuan</h1><div class="small muted">Isi singkat saja. Detail bisa dilanjutkan lewat Log.</div></div></div>' +
     '<form id="tsf" class="stack" autocomplete="off">' +
-    '<div class="card stack"><div class="sec-n">1 · KENDARAAN</div>' + tsVehicleFields(v, F.outs, needOutlet) + '<div id="ocr_nopol" class="ocrhint" style="display:none"></div></div>' +
+    '<div class="card stack"><div class="sec-n">1 · KENDARAAN</div>' + tsVehicleFields(v, F.outs, needOutlet) + '</div>' +
     '<div class="card stack"><div class="sec-n">2 · MASALAH</div>' + tsSystemChips(v) +
     '<div><label>Keluhan / gejala <span class="req">*</span></label><textarea id="t_keluhan" placeholder="Apa yang terjadi, sejak kapan, sudah dicek apa saja">' + esc(v.keluhan) + '</textarea></div>' +
     '<div><label>Kode DTC <span class="opt">opsional</span></label><input type="text" id="t_dtc" class="mono" value="' + esc(v.dtc) + '" placeholder="P0300, P0171" autocapitalize="characters"></div></div>' +
-    '<div class="card"><div class="sec-n">3 · FOTO</div><div class="tspicks" id="t_picks"></div><div class="small muted" style="margin-top:6px">Nopol terisi otomatis dari foto tampak depan.</div></div>' +
+    '<div class="card"><div class="sec-n">3 · FOTO & VIDEO</div><div class="small muted" style="margin:2px 0 6px">Ambil langsung dari kamera. Foto/video dikompres & diberi watermark otomatis.</div><div id="t_picks"></div></div>' +
     '<div id="t_sim"></div>' +
     '<label class="urgbox"><input type="checkbox" id="t_urgent"' + (v.urgent ? ' checked' : '') + '><span><b>URGENT</b> · mobil mogok / customer menunggu. Tombol telepon &amp; WhatsApp Tech Support langsung muncul.</span></label>' +
     '<div id="t_err" class="msg err hidden"></div>' +
     '<div class="sendbar"><button class="btn or block" type="submit" id="t_go">' + ic('send') + ' Kirim ke Tech Support</button></div>' +
     '<div class="small muted" style="text-align:center;margin-top:-4px">' + (tsCfg().ai.on && tsCfg().ai.ready ? 'Saran awal AI muncul dalam beberapa detik' : 'Saran dari kasus serupa muncul otomatis') + ' · HP Tech Support berbunyi</div></form>';
-  var drawPicks = function () {
-    $('#t_picks').innerHTML = TS_PHOTOS.map(function (p) { return tsPickHtml(F, p[0], p[1], p[2], p[3]); }).join('');
-    tsBindPicks($('#t_picks'), F, function (k, file) { drawPicks(); if (file && k === 'depan') tsOcrPlate(file); });
-  };
-  drawPicks();
+  tsMountAtts($('#t_picks'), F, TS_PHOTOS, function (k, file) { if (k === 'depan') tsOcrPlate(file); });
   $$('#t_sis .chip').forEach(function (b) { b.onclick = function () { v.sistem = v.sistem === b.dataset.s ? '' : b.dataset.s; $$('#t_sis .chip').forEach(function (x) { x.classList.toggle('on', x.dataset.s === v.sistem); }); tsSimSoon(); tsSaveFormText(); }; });
   $('#tsf').oninput = function () { tsCollect(F); tsSaveFormText(); tsSimSoon(); };
   $('#tsf').onchange = function () { tsCollect(F); tsSaveFormText(); };
@@ -409,10 +513,16 @@ function tsSimSoon() {
   }, 900);
 }
 function tsOcrPlate(file) {
-  var box = $('#ocr_nopol'), inp = $('#t_nopol');
-  if (!box || !inp || !navigator.onLine) return;
+  var inp = $('#t_nopol'), box = $('#ocr_nopol');
+  if (!inp) return;
+  if (!box) { box = document.createElement('div'); box.id = 'ocr_nopol'; box.className = 'ocrhint'; inp.parentNode.appendChild(box); }
+  if (!navigator.onLine) { box.style.display = ''; box.innerHTML = '📷 Offline: nopol belum bisa dibaca dari foto. Isi manual ya.'; return; }
   box.style.display = ''; box.innerHTML = '<span class="spin xs"></span> Membaca nopol dari foto tampak depan…';
+  // 1) baca seluruh foto; 2) bila plat belum ketemu, baca ulang bagian bawah-tengah yang diperbesar (plat biasanya di situ)
   imageForOcr(file).then(function (b64) { return api('tsOcr', b64, 'image/jpeg'); }).then(function (r) {
+    if (parsePlate(r.text).all.length) return r;
+    return tsCropForOcr(file).then(function (b64) { return api('tsOcr', b64, 'image/jpeg'); }).then(function (r2) { return { text: r.text + '\n' + r2.text }; }, function () { return r; });
+  }).then(function (r) {
     var p = parsePlate(r.text), list = p.all, cur = inp.value.trim();
     if (!$('#ocr_nopol')) return;
     if (!list.length) { box.innerHTML = cur ? '' : '📷 Nopol tidak terbaca dari foto. Isi manual ya.'; box.style.display = cur ? 'none' : ''; return; }
@@ -422,6 +532,18 @@ function tsOcrPlate(file) {
     $$('[data-pl]', box).forEach(function (b) { b.onclick = function () { inp.value = b.dataset.pl; inp.dispatchEvent(new Event('input', { bubbles: true })); box.innerHTML = '📷 Diisi dari foto. Mohon cek kembali.'; }; });
   }).catch(function () { if ($('#ocr_nopol')) box.innerHTML = '📷 Nopol belum bisa dibaca dari foto. Isi manual ya.'; });
 }
+function tsCropForOcr(file) {
+  return createImageBitmap(file, { imageOrientation: 'from-image' }).then(function (bm) {
+    var sx = bm.width * 0.12, sy = bm.height * 0.38, sw = bm.width * 0.76, sh = bm.height * 0.58;
+    var sc = Math.min(2.5, 2200 / sw), c = document.createElement('canvas');
+    c.width = Math.round(sw * sc); c.height = Math.round(sh * sc);
+    var ctx = c.getContext('2d'); ctx.filter = 'grayscale(1) contrast(1.5)';
+    ctx.drawImage(bm, sx, sy, sw, sh, 0, 0, c.width, c.height);
+    return new Promise(function (res) { c.toBlob(res, 'image/jpeg', 0.92); });
+  }).then(function (blob) {
+    return new Promise(function (res, rej) { var r = new FileReader(); r.onload = function () { res(String(r.result).split(',')[1]); }; r.onerror = rej; r.readAsDataURL(blob); });
+  });
+}
 function tsShowErr(id, msg) { var e = $(id); if (!e) { toast(msg); return; } e.innerHTML = ic('warn') + '<span>' + esc(msg) + '</span>'; e.classList.remove('hidden'); e.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
 function tsSubmitRequest() {
   var F = TSA.form; tsCollect(F);
@@ -430,21 +552,22 @@ function tsSubmitRequest() {
   if (!v.brand) miss.push('Brand');
   if (!String(v.keluhan || '').trim()) miss.push('Keluhan / gejala');
   if (miss.length) { tsShowErr('#t_err', 'Lengkapi dulu: ' + miss.join(', ') + '.'); return; }
-  var btn = $('#t_go'); btn.disabled = true; btn.textContent = 'Mengirim…';
+  var btn = $('#t_go'); btn.disabled = true;
   $('#t_err').classList.add('hidden');
-  api('tsCreate', v, F.key).then(function (r) {
+  var busyP = F.proc && Object.keys(F.proc).length;
+  btn.textContent = busyP ? 'Menyelesaikan kompres foto/video…' : 'Mengirim…';
+  tsWaitProc(F).then(function () { if ($('#t_go')) $('#t_go').textContent = 'Mengirim…'; return api('tsCreate', v, F.key); }).then(function (r) {
     var id = r.id;
     store('vt_tsform_' + S.user.username, null);
-    var labels = {}; TS_PHOTOS.forEach(function (p) { labels[p[0]] = p[1]; });
-    return tsUploadAll(id, F.files, labels, 'Mengirim foto…').then(function (up) {
-      TSA.form = null;
+    TSA.form = null;
+    tsBgUpload(id, tsFilesOf(F), tsLabels(TS_PHOTOS), function () {
       api('tsAssist', id).catch(function () { /* opsional */ }).then(function () { if (TSA.caseId === id) tsRefreshCase(); });
-      if (up.failed.length) toast('Kasus terkirim, tapi ' + up.failed.length + ' lampiran gagal. Kirim ulang lewat Log.', 7000);
-      else toast('Terkirim ke Tech Support. ' + (v.urgent ? 'Tombol telepon & WhatsApp ada di halaman kasus.' : ''));
-      tsSyncNow();
-      TSA.back = tsHome();
-      tsOpen(id);
     });
+    toast('Terkirim ke Tech Support.' + (Object.keys(tsFilesOf(F)).length ? ' Foto dikirim di latar.' : '') + (v.urgent ? ' Tombol telepon & WhatsApp ada di halaman kasus.' : ''), 5000);
+    if (!Object.keys(tsFilesOf(F)).length) api('tsAssist', id).catch(function () { /* */ }).then(function () { if (TSA.caseId === id) tsRefreshCase(); });
+    tsSyncNow();
+    TSA.back = tsHome();
+    tsOpen(id);
   }).catch(function (e) {
     tsShowErr('#t_err', errMsg(e));
     if ($('#t_go')) { btn.disabled = false; btn.innerHTML = ic('send') + ' Kirim ke Tech Support'; }
@@ -452,7 +575,8 @@ function tsSubmitRequest() {
 }
 
 /* ---------------- catat kasus selesai (alur B, tim TS) ---------------- */
-var TS_REC_PHOTOS = [['depan', 'Foto tampak depan', 'image/*', true], ['problem', 'Foto problem', 'image/*', true], ['solving1', 'Foto problem solving 1', 'image/*', true], ['solving2', 'Foto problem solving 2', 'image/*', false]];
+var TS_REC_PHOTOS = [{ key: 'depan', label: 'Foto tampak depan', kind: 'image', hint: 'Nopol dibaca otomatis dari foto ini' }, { key: 'problem', label: 'Foto problem', kind: 'image' },
+  { key: 'solving1', label: 'Foto problem solving 1', kind: 'image' }, { key: 'solving2', label: 'Foto problem solving 2', kind: 'image' }, { key: 'video', label: 'Video', kind: 'video' }];
 function tsTodayIso() { var d = new Date(); return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); }
 function tsStatusChips(cur, list) {
   return '<div class="chips wrap" id="t_st">' + list.map(function (s) { return '<button type="button" class="chip st ' + tsStClass(s) + (cur === s ? ' on' : '') + '" data-st="' + esc(s) + '">' + esc(s) + '</button>'; }).join('') + '</div>';
@@ -475,11 +599,9 @@ function tsRenderRecord(m) {
     '<div><label>Part diganti <span class="opt">opsional</span></label><input type="text" id="t_part" value="' + esc(v.part) + '"></div>' +
     '<div><label>Status akhir</label>' + tsStatusChips(v.status, TS_ST_ORDER.slice(1)) + '</div>' +
     '<label class="check"><input type="checkbox" id="t_ref"' + (v.referensi !== false ? ' checked' : '') + '> Jadikan referensi "kasus serupa" untuk teknisi lain</label></div>' +
-    '<div class="card"><div class="sec-n">FOTO</div><div class="tspicks" id="t_picks"></div></div>' +
+    '<div class="card"><div class="sec-n">FOTO & VIDEO</div><div id="t_picks" style="margin-top:8px"></div></div>' +
     '<div id="t_err" class="msg err hidden"></div><div class="sendbar"><button class="btn or block" type="submit" id="t_go">' + ic('check') + ' Simpan & buat PDF</button></div></form>';
-  var drawPicks = function () { $('#t_picks').innerHTML = TS_REC_PHOTOS.map(function (p) { return tsPickHtml(F, p[0], p[1], p[2], p[3]); }).join(''); tsBindPicks($('#t_picks'), F, function (k, file) { drawPicks(); if (file && k === 'depan') tsOcrPlate(file); }); };
-  drawPicks();
-  if (!$('#ocr_nopol')) { var oc = document.createElement('div'); oc.id = 'ocr_nopol'; oc.className = 'ocrhint'; oc.style.display = 'none'; $('#t_nopol').parentNode.appendChild(oc); }
+  tsMountAtts($('#t_picks'), F, TS_REC_PHOTOS, function (k, file) { if (k === 'depan') tsOcrPlate(file); });
   $$('#t_sis .chip').forEach(function (b) { b.onclick = function () { v.sistem = v.sistem === b.dataset.s ? '' : b.dataset.s; $$('#t_sis .chip').forEach(function (x) { x.classList.toggle('on', x.dataset.s === v.sistem); }); }; });
   $$('#t_st .chip').forEach(function (b) { b.onclick = function () { v.status = b.dataset.st; $$('#t_st .chip').forEach(function (x) { x.classList.toggle('on', x === b); }); }; });
   $('#tsr').oninput = function () { tsCollect(F); var s = $('#t_sumber'); if (s) v.sumber = s.value; };
@@ -492,16 +614,14 @@ function tsRenderRecord(m) {
     if (!String(v.keluhan || '').trim()) miss.push('Keluhan');
     if (tsIsFinal(v.status) && !String(v.solusi || '').trim()) miss.push('Result / solusi');
     if (miss.length) { tsShowErr('#t_err', 'Lengkapi dulu: ' + miss.join(', ') + '.'); return; }
-    var btn = $('#t_go'); btn.disabled = true; btn.textContent = 'Menyimpan…';
-    api('tsRecord', v, F.key).then(function (r) {
-      var labels = {}; TS_REC_PHOTOS.forEach(function (p) { labels[p[0]] = p[1]; });
-      return tsUploadAll(r.id, F.files, labels, 'Mengirim foto…').then(function (up) {
-        TSA.rec = null;
-        if (up.failed.length) toast(up.failed.length + ' foto gagal terkirim. Tambahkan lewat halaman kasus.', 7000);
-        tsSyncNow(); TSA.back = 'ts:inbox';
-        tsOpen(r.id);
-        tsMakePdf(r.id, true);
-      });
+    var btn = $('#t_go'); btn.disabled = true; btn.textContent = F.proc && Object.keys(F.proc).length ? 'Menyelesaikan kompres…' : 'Menyimpan…';
+    tsWaitProc(F).then(function () { return api('tsRecord', v, F.key); }).then(function (r) {
+      TSA.rec = null;
+      var files = tsFilesOf(F);
+      tsSyncNow(); TSA.back = 'ts:inbox';
+      tsOpen(r.id);
+      if (Object.keys(files).length) { toast('Tersimpan. Foto dikirim di latar, PDF dibuat setelah foto terkirim.', 5000); tsBgUpload(r.id, files, tsLabels(TS_REC_PHOTOS), function () { tsMakePdf(r.id, true); }); }
+      else tsMakePdf(r.id, true);
     }).catch(function (e) { tsShowErr('#t_err', errMsg(e)); if ($('#t_go')) { btn.disabled = false; btn.innerHTML = ic('check') + ' Simpan & buat PDF'; } });
   };
   if (!S.techNames) apiRetry('tsAdminGet').then(function (a) { S.techNames = a.users.map(function (u) { return u.nama; }); var dl = $('#t_tlist'); if (dl) dl.innerHTML = S.techNames.map(function (n) { return '<option value="' + esc(n) + '">'; }).join(''); }).catch(function () { S.techNames = []; });
@@ -588,12 +708,87 @@ function tsLogHtml(d) {
     var body = l.jenis === 'file' && f ? tsFileTile(f) : '<div class="lb">' + esc(l.teks) + '</div>';
     if (l.jenis === 'hasil') body = '<div class="lb"><b>' + esc(l.teks) + '</b></div>';
     return '<div class="lmsg ' + (right ? 'ts' : 'tk') + (mine ? ' mine' : '') + '"><div class="lh">' + esc(l.name) + ' · ' + (l.peran === 'ts' ? 'Tech Support' : 'teknisi') + ' · ' + esc(tm) + '</div>' + body + '</div>';
-  }).join('');
+  }).join('') + tsPendHtml(d);
 }
+/* ---- pesan yang sedang dikirim: langsung tampil tanpa menunggu server ---- */
+TSA.pend = [];
+function tsPendSide(d) { return d.flags.staff && !d.flags.mine ? 'ts' : 'tk'; }
+function tsPendOne(p, side) {
+  var st = p.state === 'err' ? '<span class="pst err">Gagal terkirim · ketuk untuk ulangi</span>' : p.state === 'ok' ? '<span class="pst">✓ Terkirim</span>' : '<span class="pst"><span class="spin xs"></span> ' + esc(p.status || 'Mengirim…') + '</span>';
+  var body = p.kind === 'file' ? '<div class="lb">' + (p.thumb ? '<img class="pthumb" src="' + esc(p.thumb) + '" alt="">' : '') + esc(p.label) + '</div>' : '<div class="lb">' + esc(p.text) + '</div>';
+  return '<div class="lmsg ' + side + ' mine pend' + (p.state === 'err' ? ' perr' : '') + '" data-pend="' + p.tmp + '"><div class="lh">' + esc(String(S.user.nama).split(' ')[0]) + ' · baru saja</div>' + body + st + '</div>';
+}
+function tsPendHtml(d) {
+  var ids = {}; d.log.forEach(function (l) { ids[l.id] = 1; });
+  TSA.pend = TSA.pend.filter(function (p) { return !(p.logId && ids[p.logId]) && !(p.state === 'ok' && p.kind === 'file' && p.uploaded && d.files.some(function (f) { return f.id === p.fileId; })); });
+  return TSA.pend.filter(function (p) { return p.caseId === d.t.TicketID; }).map(function (p) { return tsPendOne(p, tsPendSide(d)); }).join('');
+}
+function tsPendUpdate(p) {
+  var el = document.querySelector('[data-pend="' + p.tmp + '"]'), d = TSA.caseData;
+  if (el && d) { el.outerHTML = tsPendOne(p, tsPendSide(d)); tsBindPend(); }
+}
+function tsBindPend() {
+  $$('.lmsg.perr').forEach(function (el) {
+    el.onclick = function () { var p = TSA.pend.filter(function (x) { return x.tmp === el.dataset.pend; })[0]; if (p && p.retry) { p.state = 'send'; p.status = ''; tsPendUpdate(p); p.retry(); } };
+  });
+}
+function tsScrollEnd() { var lg = $('#tslog'); if (lg && lg.lastElementChild) lg.lastElementChild.scrollIntoView({ block: 'end', behavior: 'smooth' }); }
+function tsSendMsg(caseId, txt) {
+  var p = { tmp: 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), caseId: caseId, kind: 'msg', text: txt, state: 'send' };
+  TSA.pend.push(p);
+  var lg = $('#tslog');
+  if (lg && TSA.caseData) { var e0 = lg.querySelector('.muted.small'); if (e0 && !lg.querySelector('.lmsg,.lsys')) e0.remove(); lg.insertAdjacentHTML('beforeend', tsPendOne(p, tsPendSide(TSA.caseData))); tsScrollEnd(); }
+  p.retry = function () {
+    api('tsMessage', caseId, txt).then(function (r) { p.state = 'ok'; p.logId = r.id; tsPendUpdate(p); tsRefreshCase(); tsSyncNow(); },
+      function (e) { p.state = 'err'; p.retry = p.retry; tsPendUpdate(p); toast(errMsg(e)); });
+  };
+  p.retry();
+}
+var TS_LOG_ITEM = [{ key: 'log', label: 'Lampiran', kind: 'any' }];
+function tsAttachMenu(t) {
+  var pick = function (icon, text, accept, cam) { return '<label class="pick big' + (cam ? '' : ' alt') + '">' + ic(icon) + text + '<input type="file" data-src="' + (cam ? 'cam' : 'gal') + '" accept="' + accept + '"' + (cam ? ' capture="environment"' : '') + '></label>'; };
+  modal('<h3>Kirim lampiran</h3><div class="muted small" style="margin:4px 0 12px">Foto & video dikompres dan diberi watermark otomatis, lalu dikirim di latar.</div><div class="attmenu">' +
+    (isTouch() ? pick('camera', 'Ambil foto', 'image/*', true) + pick('video', 'Rekam video', 'video/*', true) : '') +
+    pick('folder', isTouch() ? 'Galeri foto / video' : 'Pilih foto / video', 'image/*,video/*', false) + pick('file', 'File / scan', '', false) +
+    '</div><button class="btn sec block" id="amX" style="margin-top:12px">Batal</button>', 'narrow');
+  $('#amX').onclick = closeModal;
+  $$('.attmenu input[type=file]').forEach(function (inp) {
+    inp.onchange = function () { var f = inp.files && inp.files[0]; inp.value = ''; closeModal(); if (f) tsSendFile(t, f, inp.dataset.src); };
+  });
+}
+function tsSendFile(t, file, src) {
+  var isImg = /^image\//.test(file.type || ''), isVid = /^video\//.test(file.type || '');
+  var label = (isImg ? 'Foto' : isVid ? 'Video' : 'File') + ' dari ' + String(S.user.nama).split(' ')[0];
+  var p = { tmp: 'p' + Date.now().toString(36), caseId: t.TicketID, kind: 'file', label: label, state: 'send', status: isImg ? 'Mengompres foto…' : isVid ? 'Menyiapkan video…' : 'Mengirim…' };
+  TSA.pend.push(p);
+  var lg = $('#tslog');
+  if (lg && TSA.caseData) { lg.insertAdjacentHTML('beforeend', tsPendOne(p, tsPendSide(TSA.caseData))); tsScrollEnd(); }
+  var F = { v: { brand: t.Brand, model: t.Model, nopol: t.Nopol, outlet: t.Outlet }, files: {}, proc: {} };
+  var item = [{ key: 'log', label: label, kind: isImg ? 'image' : isVid ? 'video' : 'any' }];
+  tsPickFile(F, item, 'log', file, src || 'gal', function () {
+    var pr = F.proc.log, f = F.files.log;
+    if (f && f.thumb) p.thumb = f.thumb;
+    p.status = pr ? pr.label.replace(/ \(boleh lanjut mengisi\)|, boleh lanjut mengisi/, '') : 'Mengirim…';
+    tsPendUpdate(p);
+  });
+  tsWaitProc(F).then(function () {
+    if (!F.files.log) { p.state = 'err'; tsPendUpdate(p); return; }
+    p.status = 'Mengirim…'; tsPendUpdate(p);
+    var send = function () {
+      tsBgUpload(t.TicketID, { log: F.files.log }, { log: label }, function (r) {
+        if (r.failed.length) { p.state = 'err'; p.retry = send; tsPendUpdate(p); TSA.lastFail = null; tsPillDraw(); }
+        else { p.state = 'ok'; p.done = true; TSA.pend = TSA.pend.filter(function (x) { return x !== p; }); }
+      });
+    };
+    send();
+  });
+}
+
 function tsRenderCase(m) {
   var d = TSA.caseData;
   if (!d) { m.innerHTML = '<div class="empty"><div class="spin" style="margin:0 auto 10px"></div>Memuat kasus…</div>'; return; }
   var t = d.t, F = d.flags, draftMsg = $('#lmsg') ? $('#lmsg').value : '';
+  var focused = document.activeElement && document.activeElement.id === 'lmsg', caret = focused ? document.activeElement.selectionStart : 0;
   var h = '<div class="tscasehead"><button class="hbtn" id="tsBack" aria-label="Kembali">' + ic('chev', '') + '</button><div style="flex:1;min-width:0"><div class="mono" style="font-weight:800">' + esc(t.TicketID) + (t.NoLama ? ' <span class="tag">' + esc(t.NoLama) + '</span>' : '') + '</div>' +
     '<div class="small muted">' + esc(tsVeh(t)) + (t.Nopol ? ' · ' + esc(t.Nopol) : '') + ' · ' + esc(t.Outlet) + '</div></div>' + tsPill(t.Status) + '</div>';
   h += tsContactBar(d);
@@ -621,7 +816,7 @@ function tsRenderCase(m) {
     return '<div class="simi"><span class="small muted">' + esc(s.id + ' · ' + [s.brand, s.model].filter(Boolean).join(' ') + (s.dtc ? ' · ' + s.dtc : '')) + '</span><div>' + esc(s.keluhan) + '</div><div class="ok"><b>Solusi:</b> ' + esc(s.solusi) + '</div></div>';
   }).join('') + '</details>';
   h += '<div class="sec-t" style="margin-top:6px">' + ic('list') + ' Log kasus</div><div class="tslog" id="tslog">' + (tsLogHtml(d) || '<div class="muted small">Belum ada catatan.</div>') + '</div>';
-  if (F.canMsg) h += '<div class="composer"><button class="hbtn" id="lAtt" aria-label="Tambah foto / file">' + ic('camera') + '</button><input type="file" id="lFile" class="hidden" accept="image/*,video/*,application/pdf,.txt,.csv,.log,.zip">' +
+  if (F.canMsg) h += '<div class="composer"><button class="hbtn" id="lAtt" aria-label="Tambah foto / file">' + ic('camera') + '</button>' +
     '<textarea id="lmsg" rows="1" placeholder="Tulis catatan…">' + esc(draftMsg) + '</textarea><button class="hbtn send" id="lSend" aria-label="Kirim">' + ic('send') + '</button></div>';
   else h += '<div class="msg info">' + ic('check') + '<span>Kasus sudah ditutup. Jika masalah muncul lagi, buat permintaan bantuan baru.</span></div>';
   m.innerHTML = h;
@@ -649,18 +844,14 @@ function tsRenderCase(m) {
     ta.oninput = grow; grow();
     send.onclick = function () {
       var txt = ta.value.trim(); if (!txt) return;
-      send.disabled = true;
-      api('tsMessage', t.TicketID, txt).then(function () { ta.value = ''; tsRefreshCase().then(function () { var lg = $('#tslog'); if (lg) lg.lastElementChild && lg.lastElementChild.scrollIntoView({ block: 'end' }); }); tsSyncNow(); }, function (e) { toast(errMsg(e)); }).finally(function () { if ($('#lSend')) $('#lSend').disabled = false; });
+      ta.value = ''; grow(); ta.focus();
+      tsSendMsg(t.TicketID, txt);
     };
-    $('#lAtt').onclick = function () { $('#lFile').click(); };
-    $('#lFile').onchange = function () {
-      var file = this.files && this.files[0]; if (!file) return;
-      tsPrepFile(file).then(function (p) {
-        var files = { log: p };
-        return tsUploadAll(t.TicketID, files, { log: (/^image/.test(p.type) ? 'Foto' : /^video/.test(p.type) ? 'Video' : 'File') + ' dari ' + String(S.user.nama).split(' ')[0] }, 'Mengirim lampiran…');
-      }).then(function (r) { if (r.failed.length) toast(r.failed[0], 7000); else toast('Lampiran terkirim.'); tsRefreshCase(); tsSyncNow(); });
-    };
+    ta.onkeydown = function (e) { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); send.onclick(); } };
+    $('#lAtt').onclick = function () { tsAttachMenu(t); };
+    if (focused) { ta.focus(); try { ta.setSelectionRange(caret, caret); } catch (e) { /* */ } }
   }
+  tsBindPend();
 }
 function tsMakePdf(id, regen) {
   modal('<h3>Menyiapkan PDF report…</h3><div class="muted small" style="margin:6px 0 14px">Biasanya 10–30 detik.</div><div class="spin" style="margin:0 auto"></div>', 'narrow');
@@ -677,36 +868,34 @@ function tsMakePdf(id, regen) {
 }
 function tsCloseModal(d) {
   var t = d.t;
-  var C = { v: { solusi: t.Solusi || '', penyebab: t.Penyebab || '', part: t.PartDiganti || '', status: tsIsFinal(t.Status) ? t.Status : 'Resolved', referensi: t.Referensi !== 'FALSE' }, files: {} };
-  var have = {}; d.files.forEach(function (f) { have[f.key] = f; });
-  var picks = [['solving1', 'Foto problem solving 1', 'image/*', true], ['solving2', 'Foto problem solving 2', 'image/*', false], ['solving3', 'Foto problem solving 3', 'image/*', false]];
-  var draw = function () {
-    $('#cPicks').innerHTML = picks.map(function (p) { return have[p[0]] && !C.files[p[0]] ? '<div class="tspick have"><span class="pi">' + ic('check') + '</span><span class="pl">' + esc(p[1]) + '<small>Sudah ada · pilih lagi untuk ganti</small></span><input type="file" accept="image/*"></div>'.replace('class="tspick have"', 'class="tspick have" data-k="' + p[0] + '"') : tsPickHtml(C, p[0], p[1], p[2], p[3]); }).join('');
-    tsBindPicks($('#cPicks'), C, draw);
-  };
+  var C = { v: { solusi: t.Solusi || '', penyebab: t.Penyebab || '', part: t.PartDiganti || '', status: tsIsFinal(t.Status) ? t.Status : 'Resolved', referensi: t.Referensi !== 'FALSE', brand: t.Brand, model: t.Model, nopol: t.Nopol, outlet: t.Outlet }, files: {}, existing: {} };
+  d.files.forEach(function (f) { C.existing[f.key] = f; });
+  var picks = [{ key: 'solving1', label: 'Foto problem solving 1', kind: 'image' }, { key: 'solving2', label: 'Foto problem solving 2', kind: 'image' }, { key: 'solving3', label: 'Foto problem solving 3', kind: 'image' }, { key: 'video_solving', label: 'Video hasil perbaikan', kind: 'video' }];
   modal('<h3>' + (tsIsFinal(t.Status) ? 'Ubah hasil penanganan' : 'Selesaikan kasus') + '</h3><div class="muted small" style="margin:4px 0 12px">' + esc(t.TicketID + ' · ' + tsVeh(t) + ' · ' + (t.Nopol || '')) + '</div><div class="stack">' +
     '<div><label>Hasil penanganan / solusi <span class="req">*</span></label><textarea id="t_solusi" placeholder="1. …&#10;2. …">' + esc(C.v.solusi) + '</textarea></div>' +
     '<div><label>Penyebab <span class="opt">opsional</span></label><textarea id="t_penyebab" style="min-height:56px">' + esc(C.v.penyebab) + '</textarea></div>' +
     '<div><label>Part diganti <span class="opt">opsional</span></label><input type="text" id="t_part" value="' + esc(C.v.part) + '"></div>' +
     '<div><label>Status akhir</label>' + tsStatusChips(C.v.status, ['Resolved', 'Not resolved', 'Pending part', 'Dirujuk ke dealer']) + '</div>' +
-    '<div><label>Foto problem solving</label><div class="tspicks" id="cPicks"></div></div>' +
+    '<div><label>Foto / video problem solving</label><div id="cPicks"></div></div>' +
     '<label class="check"><input type="checkbox" id="t_ref"' + (C.v.referensi ? ' checked' : '') + '> Jadikan referensi "kasus serupa" untuk teknisi lain</label>' +
     '<div id="cErr" class="msg err hidden"></div><button class="btn or block" id="cGo">' + ic('check') + ' Simpan & buat PDF</button><button class="btn sec block" id="cX">Batal</button></div>');
-  draw();
+  tsMountAtts($('#cPicks'), C, picks);
   $$('#t_st .chip').forEach(function (b) { b.onclick = function () { C.v.status = b.dataset.st; $$('#t_st .chip').forEach(function (x) { x.classList.toggle('on', x === b); }); }; });
   $('#cX').onclick = closeModal;
   $('#cGo').onclick = function () {
     tsCollect(C);
     if (!String(C.v.solusi).trim()) { var e = $('#cErr'); e.innerHTML = ic('warn') + '<span>Isi hasil penanganan / solusi.</span>'; e.classList.remove('hidden'); return; }
-    var b = this; b.disabled = true; b.textContent = 'Menyimpan…';
-    api('tsClose', t.TicketID, C.v).then(function () {
-      var labels = {}; picks.forEach(function (p) { labels[p[0]] = p[1]; });
-      return tsUploadAll(t.TicketID, C.files, labels, 'Mengirim foto…');
-    }).then(function (up) {
-      if (up.failed.length) toast(up.failed.length + ' foto gagal terkirim.', 6000);
+    var b = this; b.disabled = true; b.textContent = C.proc && Object.keys(C.proc).length ? 'Menyelesaikan kompres…' : 'Menyimpan…';
+    modalLock = true;
+    tsWaitProc(C).then(function () { return api('tsClose', t.TicketID, C.v); }).then(function () {
+      modalLock = false;
+      var files = tsFilesOf(C);
       tsSyncNow();
-      return tsMakePdf(t.TicketID, true);
-    }).catch(function (e) { b.disabled = false; b.innerHTML = ic('check') + ' Simpan & buat PDF'; var er = $('#cErr'); if (er) { er.innerHTML = ic('warn') + '<span>' + esc(errMsg(e)) + '</span>'; er.classList.remove('hidden'); } else toast(errMsg(e)); });
+      if (!Object.keys(files).length) return tsMakePdf(t.TicketID, true);
+      closeModal(); tsRefreshCase();
+      toast('Tersimpan. Foto dikirim di latar, PDF dibuat setelah foto terkirim.', 5000);
+      tsBgUpload(t.TicketID, files, tsLabels(picks), function () { tsMakePdf(t.TicketID, true); });
+    }).catch(function (e) { modalLock = false; if (!$('#cGo')) { toast(errMsg(e)); return; } b.disabled = false; b.innerHTML = ic('check') + ' Simpan & buat PDF'; var er = $('#cErr'); if (er) { er.innerHTML = ic('warn') + '<span>' + esc(errMsg(e)) + '</span>'; er.classList.remove('hidden'); } else toast(errMsg(e)); });
   };
 }
 function tsEditModal(d) {
