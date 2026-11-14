@@ -1126,7 +1126,7 @@ function tsAdminDraw(el, a) {
   };
   $('#aiTest').onclick = function () {
     var b = this, p = curP(); b.disabled = true; $('#aiTestRes').innerHTML = '<div class="msg info"><span class="spin xs"></span><span>Menghubungi ' + (p === 'claude' ? 'Claude' : 'Gemini') + '…</span></div>';
-    api('tsAiTest', p).then(function (r) { $('#aiTestRes').innerHTML = '<div class="msg ok">' + ic('check') + '<span><b>Berhasil</b> · ' + esc(r.provider + ' ' + r.model) + ' · ' + Math.round(r.ms / 100) / 10 + ' dtk<br>"' + esc(r.sample) + '"</span></div>'; },
+    api('tsAiTest', p).then(function (r) { $('#aiTestRes').innerHTML = '<div class="msg ok">' + ic('check') + '<span><b>Berhasil</b> · ' + esc(r.provider + ' ' + r.model) + (r.utama && r.utama !== r.model ? ' (model utama ' + esc(r.utama) + ' sedang penuh, otomatis pakai cadangan)' : '') + ' · ' + Math.round(r.ms / 100) / 10 + ' dtk<br>"' + esc(r.sample) + '"</span></div>'; },
       function (e) { $('#aiTestRes').innerHTML = '<div class="msg err">' + ic('warn') + '<span>' + esc(errMsg(e)) + '</span></div>'; }).finally(function () { b.disabled = false; });
   };
   $('#urSave').onclick = function () { save('urgent', { buttons: $('#urB').checked, template: $('#urT').value }, this); };
