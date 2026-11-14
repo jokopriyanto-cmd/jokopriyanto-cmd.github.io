@@ -1,9 +1,9 @@
 /* Service worker VTAG Otoklix. Ganti VERSION setiap rilis → aplikasi di HP otomatis update. */
-const VERSION = '2.5.6';
+const VERSION = '2.5.7';
 const CACHE = 'vtag-' + VERSION;
 const ASSETS = ['./', 'index.html', 'app.js', 'ts.js', 'styles.css', 'manifest.webmanifest',
-  'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png', 'icons/apple-touch-icon.png',
-  'icons/favicon-32.png', 'icons/logo-otoklix.png', 'icons/logo-otoacademy.png'];
+  'icons/icon-192-v2.png', 'icons/icon-512-v2.png', 'icons/maskable-512-v2.png', 'icons/apple-touch-icon-v2.png',
+  'icons/favicon-32-v2.png', 'icons/logo-otoklix.png', 'icons/logo-otoacademy.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS.map(a => new Request(a, { cache: 'reload' })))));
@@ -58,7 +58,7 @@ function metaPut(obj) {
     t.oncomplete = () => { res(); d.close(); }; t.onerror = () => { res(); d.close(); };
   })).catch(() => {});
 }
-const NOTIF_OPT = { icon: 'icons/icon-192.png', badge: 'icons/icon-192.png', vibrate: [250, 120, 250, 120, 400], renotify: true, requireInteraction: false };
+const NOTIF_OPT = { icon: 'icons/icon-192-v2.png', badge: 'icons/icon-192-v2.png', vibrate: [250, 120, 250, 120, 400], renotify: true, requireInteraction: false };
 
 async function handlePush() {
   const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });

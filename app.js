@@ -4,7 +4,7 @@
 'use strict';
 
 var CONFIG = {
-  VERSION: '2.5.6',
+  VERSION: '2.5.7',
   API_URL: 'https://script.google.com/macros/s/AKfycbyGcLEZZ2Xm0nYl2gq53Qng-KmOUYSqvCrlwtAfRrxROwIREyGL3JyG9CQPlT_9QBYq1Q/exec',
   POLL_MS: 20000,            // cek data baru tiap 20 detik
   CHUNK: 2359296,            // 9 x 256 KB per potongan upload
@@ -805,7 +805,7 @@ function notifyNew() {
   if (navigator.vibrate) try { navigator.vibrate([120, 60, 120]); } catch (x) { /* */ }
   if (!S.pushOn && window.Notification && Notification.permission === 'granted' && document.visibilityState !== 'visible' && S.reg) {
     fresh.slice(0, 3).forEach(function (x) {
-      S.reg.showNotification('VTAG Otoklix', { body: x.message, icon: 'icons/icon-192.png', badge: 'icons/icon-192.png', tag: 'vt-' + x.caseId + '-' + x.type, data: { caseId: x.caseId } });
+      S.reg.showNotification('VTAG Otoklix', { body: x.message, icon: 'icons/icon-192-v2.png', badge: 'icons/icon-192-v2.png', tag: 'vt-' + x.caseId + '-' + x.type, data: { caseId: x.caseId } });
     });
   }
 }
@@ -2638,7 +2638,7 @@ function pushDiag() {
       if (!got) { add('HP menerima notifikasi', 'bad', 'Tidak sampai dalam 20 detik. Cek: mode hemat baterai / data latar belakang untuk Chrome & VTAG diizinkan, lalu tes lagi.'); return; }
       add('HP menerima notifikasi', 'ok', 'Push sampai dalam ' + Math.round((Date.now() - t0) / 100) / 10 + ' detik');
       return navigator.serviceWorker.ready.then(function (reg) {
-        return reg.showNotification('VTAG Otoklix', { body: '🔔 Tes berhasil! Notifikasi akan berbunyi seperti ini walau aplikasi ditutup.', icon: 'icons/icon-192.png', badge: 'icons/icon-192.png', vibrate: [250, 120, 250], tag: 'vt-test', renotify: true });
+        return reg.showNotification('VTAG Otoklix', { body: '🔔 Tes berhasil! Notifikasi akan berbunyi seperti ini walau aplikasi ditutup.', icon: 'icons/icon-192-v2.png', badge: 'icons/icon-192-v2.png', vibrate: [250, 120, 250], tag: 'vt-test', renotify: true });
       }).then(function () { add('Bunyi / tampil notifikasi', 'ok', 'Jika tidak bunyi: Setelan HP → Notifikasi → VTAG Otoklix → aktifkan Suara & Pop-up.'); },
         function (e) { add('Bunyi / tampil notifikasi', 'bad', errMsg(e)); });
     });

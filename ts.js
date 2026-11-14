@@ -142,7 +142,7 @@ function tsNotifyNew(silent) {
   toast('🔔 ' + fresh[0].message, 6000);
   if (navigator.vibrate) try { navigator.vibrate([120, 60, 120]); } catch (x) { /* */ }
   if (!S.pushOn && window.Notification && Notification.permission === 'granted' && document.visibilityState !== 'visible' && S.reg) {
-    fresh.slice(0, 3).forEach(function (x) { S.reg.showNotification('Tech Support Otoklix', { body: x.message, icon: 'icons/icon-192.png', badge: 'icons/icon-192.png', tag: 'ts-' + x.caseId + '-' + x.type, data: { caseId: x.caseId } }); });
+    fresh.slice(0, 3).forEach(function (x) { S.reg.showNotification('Tech Support Otoklix', { body: x.message, icon: 'icons/icon-192-v2.png', badge: 'icons/icon-192-v2.png', tag: 'ts-' + x.caseId + '-' + x.type, data: { caseId: x.caseId } }); });
   }
 }
 
