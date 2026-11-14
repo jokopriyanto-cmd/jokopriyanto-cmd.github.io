@@ -97,8 +97,14 @@ function tsCached() {
   try { var c = store('vt_tsboot_' + S.user.username); if (c) { var b = JSON.parse(c); TSA.boot = b; TSA.list = b.list || []; TSA.events = b.events || []; TSA.rev = null; } } catch (e) { /* */ }
 }
 /** Dipanggil dari sync VTAG: info revisi Tech Support. */
+var tsTickAt = 0;
 function tsOnInfo(info) {
   if (!info) return;
+  // balasan otomatis AI yang sudah jatuh tempo: diproses oleh aplikasi yang sedang terbuka
+  if (info.access && info.autoDue && info.now && info.autoDue <= info.now && Date.now() - tsTickAt > 30000) {
+    tsTickAt = Date.now();
+    api('tsAutoTick').then(function (r) { if (r && r.done) tsSyncNow(); }).catch(function () { /* dicoba lagi */ });
+  }
   var had = S.boot.ts && S.boot.ts.access;
   S.boot.ts = info;
   if (!info.access) { if (inTs()) tsSwitch('vtag'); renderApsw(); return; }
@@ -700,7 +706,7 @@ function tsLogHtml(d) {
     var tm = fmtDT(l.ts);
     if (l.peran === 'sistem') return '<div class="lsys">' + esc(tm) + ' · ' + esc(l.teks) + '</div>';
     if (l.peran === 'ai') {
-      var src = l.jenis === 'ai' ? 'Asisten AI · saran awal' : 'Kasus serupa · otomatis';
+      var src = l.meta && l.meta.auto ? 'Asisten AI · balasan otomatis (Tech Support belum membalas ' + (l.meta.menit || 5) + ' mnt)' : l.jenis === 'ai' ? 'Asisten AI · saran awal' : 'Kasus serupa · otomatis';
       var st = l.meta && l.meta.dicek ? ' · sudah dicek ' + esc(String(l.meta.by || '').split(' ')[0]) : l.meta && l.meta.hidden ? ' · draf (belum dikirim ke teknisi)' : ' · belum dicek Tech Support';
       return '<div class="lmsg ai"><div class="lh">' + src + st + ' · ' + esc(tm) + '</div><div class="lb">' + esc(l.teks) + '</div>' +
         (staff && !(l.meta && l.meta.dicek) ? '<div class="row" style="margin-top:6px"><button class="btn sm" data-aiok="' + esc(l.id) + '" style="background:#6d28d9">' + ic('check', 'sm') + (l.meta && l.meta.hidden ? ' Kirim ke teknisi' : ' Setujui saran') + '</button></div>' : '') + '</div>';
@@ -819,7 +825,8 @@ function tsRenderCase(m) {
   }).join('') + '</details>';
   h += '<div class="sec-t" style="margin-top:6px">' + ic('list') + ' Log kasus</div><div class="tslog" id="tslog">' + (tsLogHtml(d) || '<div class="muted small">Belum ada catatan.</div>') + '</div>';
   if (F.canMsg) h += '<div class="composer"><button class="hbtn" id="lAtt" aria-label="Tambah foto / file">' + ic('camera') + '</button>' +
-    '<textarea id="lmsg" rows="1" placeholder="Tulis catatan…">' + esc(draftMsg) + '</textarea><button class="hbtn send" id="lSend" aria-label="Kirim">' + ic('send') + '</button></div>';
+    '<textarea id="lmsg" rows="1" placeholder="Tulis catatan…">' + esc(draftMsg) + '</textarea><button class="hbtn send" id="lSend" aria-label="Kirim">' + ic('send') + '</button></div>' +
+    (!F.staff || F.mine ? (tsCfg().ai.ready && tsCfg().ai.auto && tsCfg().ai.auto.on ? '<div class="small muted" style="text-align:center;margin:6px 0 0">🤖 Jika Tech Support belum membalas dalam ' + tsCfg().ai.auto.menit + ' menit, asisten AI membalas dulu.</div>' : '') : '');
   else h += '<div class="msg info">' + ic('check') + '<span>Kasus sudah ditutup. Jika masalah muncul lagi, buat permintaan bantuan baru.</span></div>';
   m.innerHTML = h;
   $('#tsBack').onclick = function () { TSA.caseId = null; TSA.caseData = null; go(TSA.back || tsHome()); };
@@ -1061,6 +1068,8 @@ function tsAdminDraw(el, a) {
     '<div id="aiMore"><label style="margin-top:10px">Saran AI dikirim</label>' +
     '<label class="check"><input type="radio" name="aim" value="langsung"' + (c.ai.mode !== 'draf' ? ' checked' : '') + '> <span><b>Langsung ke teknisi</b>, berlabel "belum dicek"</span></label>' +
     '<label class="check"><input type="radio" name="aim" value="draf"' + (c.ai.mode === 'draf' ? ' checked' : '') + '> <span><b>Draf untuk Tech Support dulu</b>, teknisi melihat setelah disetujui</span></label>' +
+    '<label class="check" style="margin-top:8px"><input type="checkbox" id="aiAuto"' + ((c.ai.auto || {}).on !== false ? ' checked' : '') + '> <span><b>Balas otomatis</b> pesan teknisi bila Tech Support belum membalas dalam ' +
+    '<select id="aiMenit" class="stsel" style="display:inline-block;margin:0 4px">' + [3, 5, 10, 15, 30].map(function (n) { return '<option value="' + n + '"' + (((c.ai.auto || {}).menit || 5) === n ? ' selected' : '') + '>' + n + '</option>'; }).join('') + '</select> menit</span></label>' +
     '<label>Model <span class="opt">kosongkan = otomatis</span></label><input type="text" id="aiM" value="' + esc(c.ai.model || '') + '" placeholder="' + esc(a.aiModel || '') + '"></div>' +
     '<div id="aiTestRes"></div><div class="row" style="margin-top:10px;gap:8px"><button class="btn block" id="aiSave">Simpan asisten AI</button><button class="btn sec" id="aiTest">' + ic('zap', 'sm') + ' Tes</button></div></div>';
   h += '<div class="card"><h2><span class="hic" style="background:var(--bad-bg);color:var(--bad)">' + ic('warn') + '</span>Kasus URGENT</h2>' +
@@ -1122,7 +1131,7 @@ function tsAdminDraw(el, a) {
   drawKey();
   $('#aiSave').onclick = function () {
     var p = curP(), md = $$('[name=aim]').filter(function (x) { return x.checked; })[0];
-    save('ai', { on: p !== 'off', provider: p === 'off' ? prov : p, mode: md ? md.value : 'langsung', model: $('#aiM').value.trim() }, this);
+    save('ai', { on: p !== 'off', provider: p === 'off' ? prov : p, mode: md ? md.value : 'langsung', model: $('#aiM').value.trim(), auto: { on: $('#aiAuto').checked, menit: +$('#aiMenit').value } }, this);
   };
   $('#aiTest').onclick = function () {
     var b = this, p = curP(); b.disabled = true; $('#aiTestRes').innerHTML = '<div class="msg info"><span class="spin xs"></span><span>Menghubungi ' + (p === 'claude' ? 'Claude' : 'Gemini') + '…</span></div>';
