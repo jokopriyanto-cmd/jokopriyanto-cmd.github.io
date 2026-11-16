@@ -1055,26 +1055,30 @@ function tsAdminDraw(el, a) {
     '<div class="two" style="margin-top:10px"><div><label>Tambah akun</label><select id="tmU"><option value="">Pilih akun…</option>' + users.filter(function (u) { return !team.some(function (t) { return t.username === u.username; }); }).map(function (u) { return '<option value="' + esc(u.username) + '">' + esc(u.nama + ' (' + roleName(u.role) + ')') + '</option>'; }).join('') + '</select></div>' +
     '<div><label>Nomor WhatsApp</label><input type="text" id="tmW" inputmode="tel" placeholder="08xxxxxxxxxx"></div></div><div style="margin-top:8px"><label>Peran</label><input type="text" id="tmP" value="Technical Support"></div>' +
     '<button class="btn sec block" id="tmAdd" style="margin-top:10px">' + ic('plus') + ' Tambah anggota</button></div>';
-  var prov = a.aiProvider || 'gemini', keys = a.aiKeys || {}, back = a.aiCadangan || '';
+  var prov = a.aiProvider || 'gemini', keys = a.aiKeys || {}, back = a.aiCadangan || '', MD = a.aiModels || {};
   var PV = a.aiProviders || [{ id: 'gemini', name: 'Gemini', model: 'gemini-3.8-flash' }, { id: 'claude', name: 'Claude', model: 'claude-sonnet-5-5' }];
   var pvName = function (id) { var x = PV.filter(function (p) { return p.id === id; })[0]; return x ? x.name : id; };
-  var pvModel = function (id) { var x = PV.filter(function (p) { return p.id === id; })[0]; return x ? x.model : ''; };
   var onNow = c.ai.on && !!keys[prov];
+  AIS = { level: a.aiLevel || 'seimbang', model: c.ai.model || '' };
   h += '<div class="card"><h2><span class="hic" style="background:#f3efff;color:#6d28d9">' + ic('zap') + '</span>Asisten AI <span class="pill ' + (onNow ? 'done' : 'draft') + '">' + (onNow ? 'ON · ' + esc(pvName(prov)) + (back ? ' + ' + esc(pvName(back)) : '') : 'OFF') + '</span></h2>' +
     '<div class="small muted" style="margin:-6px 0 10px">Saat OFF, saran tetap muncul gratis dari <b>kasus serupa</b>. Data yang dikirim ke AI hanya merek, model, sistem, keluhan & DTC (tanpa nopol, nama, foto).</div>' +
-    '<label>Penyedia</label><div class="aiprov">' +
+    '<label>Tambah / ganti API key</label><div class="pwf"><input type="password" id="aiK" autocomplete="off" placeholder="Tempel API key apa saja di sini"><button type="button" class="eye" aria-label="Tampilkan">' + ic('eye') + '</button></div>' +
+    '<button class="btn sec block" id="aiDet" style="margin-top:8px">' + ic('search', 'sm') + ' Kenali & simpan key</button>' +
+    '<div class="small muted" style="margin-top:4px">Aplikasi mengenali sendiri key dari Gemini, Claude, OpenAI, Groq, OpenRouter atau DeepSeek, lalu mengambil daftar model di akun lu.</div><div id="aiDetRes"></div>' +
+    '<label style="margin-top:12px">Penyedia utama</label><div class="aiprov">' +
     [['off', 'Mati', 'Kasus serupa saja']].concat(PV.map(function (p) { return [p.id, p.id === 'claude' ? 'Claude API' : p.name, (TS_AI_INFO[p.id] || {}).d || '']; })).map(function (x) {
       var on = x[0] === 'off' ? !c.ai.on : c.ai.on && prov === x[0];
-      return '<label class="aiopt' + (on ? ' on' : '') + '"><input type="radio" name="aip" value="' + x[0] + '"' + (on ? ' checked' : '') + '><b>' + esc(x[1]) + (x[0] !== 'off' && keys[x[0]] ? ' <span class="kdot" title="Key tersimpan">●</span>' : '') + '</b><small>' + esc(x[2]) + '</small></label>';
+      return '<label class="aiopt' + (on ? ' on' : '') + (x[0] !== 'off' && !keys[x[0]] ? ' nokey' : '') + '"><input type="radio" name="aip" value="' + x[0] + '"' + (on ? ' checked' : '') + '><b>' + esc(x[1]) + (x[0] !== 'off' && keys[x[0]] ? ' <span class="kdot" title="Key tersimpan">●</span>' : '') + '</b><small>' + esc(x[0] !== 'off' && !keys[x[0]] ? 'Belum ada key' : x[2]) + '</small></label>';
     }).join('') + '</div>' +
     '<div id="aiKeyBox"></div>' +
-    '<div id="aiMore"><label style="margin-top:10px">Saran AI dikirim</label>' +
+    '<div id="aiMore"><label style="margin-top:10px">Level AI</label><div class="ailevel" id="aiLv"></div>' +
+    '<label>Model <span class="opt">ikuti level, atau pilih sendiri</span></label><select id="aiM"></select>' +
+    '<label>Penyedia cadangan <span class="opt">dipakai otomatis bila penyedia utama penuh / error</span></label><select id="aiB"></select>' +
+    '<label style="margin-top:10px">Saran AI dikirim</label>' +
     '<label class="check"><input type="radio" name="aim" value="langsung"' + (c.ai.mode !== 'draf' ? ' checked' : '') + '> <span><b>Langsung ke teknisi</b>, berlabel "belum dicek"</span></label>' +
     '<label class="check"><input type="radio" name="aim" value="draf"' + (c.ai.mode === 'draf' ? ' checked' : '') + '> <span><b>Draf untuk Tech Support dulu</b>, teknisi melihat setelah disetujui</span></label>' +
     '<label class="check" style="margin-top:8px"><input type="checkbox" id="aiAuto"' + ((c.ai.auto || {}).on !== false ? ' checked' : '') + '> <span><b>Balas otomatis</b> pesan teknisi bila Tech Support belum membalas dalam ' +
-    '<select id="aiMenit" class="stsel" style="display:inline-block;margin:0 4px">' + [3, 5, 10, 15, 30].map(function (n) { return '<option value="' + n + '"' + (((c.ai.auto || {}).menit || 5) === n ? ' selected' : '') + '>' + n + '</option>'; }).join('') + '</select> menit</span></label>' +
-    '<label>Model <span class="opt">kosongkan = otomatis</span></label><input type="text" id="aiM" value="' + esc(c.ai.model || '') + '" placeholder="' + esc(a.aiModel || '') + '">' +
-    '<label>Penyedia cadangan <span class="opt">dipakai otomatis bila penyedia utama penuh / error</span></label><select id="aiB"></select></div>' +
+    '<select id="aiMenit" class="stsel" style="display:inline-block;margin:0 4px">' + [3, 5, 10, 15, 30].map(function (n) { return '<option value="' + n + '"' + (((c.ai.auto || {}).menit || 5) === n ? ' selected' : '') + '>' + n + '</option>'; }).join('') + '</select> menit</span></label></div>' +
     '<div id="aiTestRes"></div><div class="row" style="margin-top:10px;gap:8px"><button class="btn block" id="aiSave">Simpan asisten AI</button><button class="btn sec" id="aiTest">' + ic('zap', 'sm') + ' Tes</button></div></div>';
   h += '<div class="card"><h2><span class="hic" style="background:var(--bad-bg);color:var(--bad)">' + ic('warn') + '</span>Kasus URGENT</h2>' +
     '<label class="check"><input type="checkbox" id="urB"' + (c.urgent.buttons !== false ? ' checked' : '') + '> Tampilkan tombol Telepon &amp; WhatsApp</label>' +
@@ -1109,45 +1113,58 @@ function tsAdminDraw(el, a) {
     saveTeam();
   };
   var curP = function () { var x = $$('[name=aip]').filter(function (r) { return r.checked; })[0]; return x ? x.value : 'off'; };
+  var LV = [['hemat', 'Hemat', 'Cepat & irit kuota'], ['seimbang', 'Seimbang', 'Disarankan'], ['terbaik', 'Terbaik', 'Paling pintar, lebih lambat']];
   var drawKey = function () {
     var p = curP(), box = $('#aiKeyBox');
     $$('.aiopt').forEach(function (l) { l.classList.toggle('on', l.querySelector('input').checked); });
     $('#aiMore').style.display = p === 'off' ? 'none' : '';
     $('#aiTest').style.display = p === 'off' ? 'none' : '';
     if (p === 'off') { box.innerHTML = ''; return; }
-    var nm = pvName(p), k = keys[p], inf = TS_AI_INFO[p] || {};
-    var mi = $('#aiM'); if (mi) { mi.placeholder = pvModel(p); if (mi.dataset.p && mi.dataset.p !== p) mi.value = ''; mi.dataset.p = p; }
-    var bs = $('#aiB');
-    if (bs) {
-      var cur = bs.dataset.init ? bs.value : back; bs.dataset.init = '1';
-      bs.innerHTML = '<option value="">Tidak ada</option>' + PV.filter(function (x) { return x.id !== p; }).map(function (x) {
-        return '<option value="' + x.id + '"' + (keys[x.id] ? '' : ' disabled') + (cur === x.id && keys[x.id] ? ' selected' : '') + '>' + esc(x.name) + (keys[x.id] ? '' : ' (belum ada key)') + '</option>';
-      }).join('');
-    }
-    box.innerHTML = '<div class="msg ' + (k ? 'ok' : 'warn') + '">' + ic(k ? 'check' : 'key') + '<span>' + (k ? 'API key ' + esc(nm) + ' terpasang (' + esc(k) + '). Tersimpan aman di server, tidak tampil di aplikasi.' : 'Belum ada API key ' + esc(nm) + '.') +
+    var nm = pvName(p), k = keys[p], inf = TS_AI_INFO[p] || {}, md = MD[p] || { levels: {}, list: [] };
+    box.innerHTML = '<div class="msg ' + (k ? 'ok' : 'warn') + '">' + ic(k ? 'check' : 'key') + '<span>' + (k ? 'API key ' + esc(nm) + ' terpasang (' + esc(k) + ')' + (md.list.length ? ' · ' + md.list.length + ' model tersedia' : '') + '.' : 'Belum ada API key ' + esc(nm) + '. Tempel key di kolom atas.') +
       '<br><small>' + esc(inf.note || '') + (inf.url ? ' Buat key di <a href="https://' + inf.url + '" target="_blank" rel="noopener">' + esc(inf.url) + '</a>.' : '') + '</small></span></div>' +
-      '<div class="pwf"><input type="password" id="aiK" autocomplete="off" placeholder="' + (k ? 'Tempel key baru untuk mengganti' : 'Tempel API key ' + nm + ' di sini') + '"><button type="button" class="eye" aria-label="Tampilkan">' + ic('eye') + '</button></div>' +
-      '<div class="row" style="gap:8px;margin-top:8px"><button class="btn sec sm" id="aiKS">' + ic('key', 'sm') + ' Simpan key</button>' + (k ? '<button class="btn sec sm" id="aiKD" style="color:var(--bad)">' + ic('trash', 'sm') + ' Hapus key</button>' : '') + '</div>';
-    $('#aiKS').onclick = function () {
-      var v = $('#aiK').value.trim(); if (!v) { toast('Tempel API key dulu.'); return; }
-      var b = this; b.disabled = true;
-      api('tsAdminSave', 'aikey', { provider: p, key: v }).then(function (na) { toast('API key ' + nm + ' tersimpan.'); tsAdminDraw(el, na); var r = $$('[name=aip]').filter(function (x) { return x.value === p; })[0]; if (r) { r.checked = true; r.dispatchEvent(new Event('change')); } }, function (e) { b.disabled = false; toast(errMsg(e), 6000); });
-    };
+      (k ? '<div class="row" style="gap:8px;margin-top:8px"><button class="btn sec sm" id="aiRf">' + ic('refresh', 'sm') + ' Perbarui daftar model</button><button class="btn sec sm" id="aiKD" style="color:var(--bad)">' + ic('trash', 'sm') + ' Hapus key</button></div>' : '');
+    $('#aiLv').innerHTML = LV.map(function (l) {
+      return '<button type="button" class="lvb' + (AIS.level === l[0] && !AIS.model ? ' on' : '') + '" data-lv="' + l[0] + '"><b>' + l[1] + '</b><small>' + esc(l[2]) + '</small><code>' + esc((md.levels || {})[l[0]] || '-') + '</code></button>';
+    }).join('');
+    $$('#aiLv [data-lv]').forEach(function (b) { b.onclick = function () { AIS.level = b.dataset.lv; AIS.model = ''; drawKey(); }; });
+    var list = (md.list || []).slice();
+    if (AIS.model && list.indexOf(AIS.model) < 0) list.unshift(AIS.model);
+    $('#aiM').innerHTML = '<option value="">Ikuti level (' + esc((md.levels || {})[AIS.level] || '-') + ')</option>' + list.map(function (m) { return '<option' + (AIS.model === m ? ' selected' : '') + '>' + esc(m) + '</option>'; }).join('');
+    $('#aiM').onchange = function () { AIS.model = this.value; drawKey(); };
+    var bs = $('#aiB'), cur = bs.dataset.init ? bs.value : back; bs.dataset.init = '1';
+    bs.innerHTML = '<option value="">Tidak ada</option>' + PV.filter(function (x) { return x.id !== p; }).map(function (x) {
+      return '<option value="' + x.id + '"' + (keys[x.id] ? '' : ' disabled') + (cur === x.id && keys[x.id] ? ' selected' : '') + '>' + esc(x.name) + (keys[x.id] ? '' : ' (belum ada key)') + '</option>';
+    }).join('');
+    if ($('#aiRf')) $('#aiRf').onclick = function () { var b = this; b.disabled = true; api('tsAiRefresh', p).then(function (na) { toast('Daftar model ' + nm + ' diperbarui.'); tsAdminDraw(el, na); }, function (e) { b.disabled = false; toast(errMsg(e), 6000); }); };
     if ($('#aiKD')) $('#aiKD').onclick = function () {
       confirmBox({ title: 'Hapus API key ' + nm + '?', body: 'Asisten ' + nm + ' berhenti. Saran tetap muncul dari kasus serupa.', ok: 'Hapus', danger: true }).then(function (y) {
         if (y) api('tsAdminSave', 'aikey', { provider: p, key: '' }).then(function (na) { toast('API key dihapus.'); tsAdminDraw(el, na); tsLoad(true); }, function (e) { toast(errMsg(e)); });
       });
     };
   };
-  $$('[name=aip]').forEach(function (r) { r.onchange = drawKey; });
+  $$('[name=aip]').forEach(function (r) { r.onchange = function () { AIS.model = ''; drawKey(); }; });
   drawKey();
+  $('#aiDet').onclick = function () {
+    var v = $('#aiK').value.trim(), b = this;
+    if (!v) { toast('Tempel API key dulu.'); return; }
+    b.disabled = true; $('#aiDetRes').innerHTML = '<div class="msg info"><span class="spin xs"></span><span>Mengenali key & mengambil daftar model…</span></div>';
+    api('tsAiDetect', v).then(function (na) {
+      var d = na.detected;
+      tsAdminDraw(el, na);
+      var r = $$('[name=aip]').filter(function (x) { return x.value === d.provider; })[0];
+      if (r && (curP() === 'off' || !na.cfg.ai.on)) { r.checked = true; r.dispatchEvent(new Event('change')); }
+      $('#aiDetRes').innerHTML = '<div class="msg ok">' + ic('check') + '<span><b>Terdeteksi: ' + esc(d.name) + '</b> · ' + d.count + ' model tersedia. Key tersimpan.<br><small>Hemat: ' + esc(d.levels.hemat) + ' · Seimbang: ' + esc(d.levels.seimbang) + ' · Terbaik: ' + esc(d.levels.terbaik) + '</small><br><small>Pilih penyedia & level di bawah lalu tekan <b>Simpan asisten AI</b>.</small></span></div>';
+      $('#aiDetRes').scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }, function (e) { b.disabled = false; $('#aiDetRes').innerHTML = '<div class="msg err">' + ic('warn') + '<span>' + esc(errMsg(e)) + '</span></div>'; });
+  };
   $('#aiSave').onclick = function () {
     var p = curP(), md = $$('[name=aim]').filter(function (x) { return x.checked; })[0];
-    save('ai', { on: p !== 'off', provider: p === 'off' ? prov : p, cadangan: p === 'off' ? back : ($('#aiB') ? $('#aiB').value : ''), mode: md ? md.value : 'langsung', model: $('#aiM').value.trim(), auto: { on: $('#aiAuto').checked, menit: +$('#aiMenit').value } }, this);
+    save('ai', { on: p !== 'off', provider: p === 'off' ? prov : p, cadangan: p === 'off' ? back : $('#aiB').value, level: AIS.level, model: AIS.model, mode: md ? md.value : 'langsung', auto: { on: $('#aiAuto').checked, menit: +$('#aiMenit').value } }, this);
   };
   $('#aiTest').onclick = function () {
     var b = this, p = curP(); b.disabled = true; $('#aiTestRes').innerHTML = '<div class="msg info"><span class="spin xs"></span><span>Menghubungi ' + esc(pvName(p)) + '…</span></div>';
-    api('tsAiTest', p).then(function (r) { $('#aiTestRes').innerHTML = '<div class="msg ok">' + ic('check') + '<span><b>Berhasil</b> · ' + esc(r.provider + ' ' + r.model) + (r.utama && r.utama !== r.model ? ' (model utama ' + esc(r.utama) + ' sedang penuh, otomatis pakai cadangan)' : '') + ' · ' + Math.round(r.ms / 100) / 10 + ' dtk<br>"' + esc(r.sample) + '"</span></div>'; },
+    api('tsAiTest', p).then(function (r) { $('#aiTestRes').innerHTML = '<div class="msg ok">' + ic('check') + '<span><b>Berhasil</b> · ' + esc(r.provider + ' ' + r.model) + (r.utama && r.utama !== r.model ? ' (model ' + esc(r.utama) + ' sedang penuh, otomatis pakai cadangan)' : '') + ' · ' + Math.round(r.ms / 100) / 10 + ' dtk<br>"' + esc(r.sample) + '"<br><small>Tes memakai pengaturan yang sudah disimpan.</small></span></div>'; },
       function (e) { $('#aiTestRes').innerHTML = '<div class="msg err">' + ic('warn') + '<span>' + esc(errMsg(e)) + '</span></div>'; }).finally(function () { b.disabled = false; });
   };
   $('#urSave').onclick = function () { save('urgent', { buttons: $('#urB').checked, template: $('#urT').value }, this); };
@@ -1176,6 +1193,7 @@ function tsAdminDraw(el, a) {
     this.value = '';
   };
 }
+var AIS = { level: 'seimbang', model: '' };
 var TS_AI_INFO = {
   gemini: { d: 'Gratis (Google)', note: 'Tier gratis: Google boleh memakai data untuk mengembangkan produknya.', url: 'aistudio.google.com/apikey' },
   claude: { d: 'Berbayar, paling akurat', note: 'Bayar sesuai pemakaian.', url: 'console.anthropic.com/settings/keys' },
