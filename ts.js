@@ -1055,14 +1055,17 @@ function tsAdminDraw(el, a) {
     '<div class="two" style="margin-top:10px"><div><label>Tambah akun</label><select id="tmU"><option value="">Pilih akun…</option>' + users.filter(function (u) { return !team.some(function (t) { return t.username === u.username; }); }).map(function (u) { return '<option value="' + esc(u.username) + '">' + esc(u.nama + ' (' + roleName(u.role) + ')') + '</option>'; }).join('') + '</select></div>' +
     '<div><label>Nomor WhatsApp</label><input type="text" id="tmW" inputmode="tel" placeholder="08xxxxxxxxxx"></div></div><div style="margin-top:8px"><label>Peran</label><input type="text" id="tmP" value="Technical Support"></div>' +
     '<button class="btn sec block" id="tmAdd" style="margin-top:10px">' + ic('plus') + ' Tambah anggota</button></div>';
-  var prov = a.aiProvider || 'gemini', keys = a.aiKeys || {};
+  var prov = a.aiProvider || 'gemini', keys = a.aiKeys || {}, back = a.aiCadangan || '';
+  var PV = a.aiProviders || [{ id: 'gemini', name: 'Gemini', model: 'gemini-3.8-flash' }, { id: 'claude', name: 'Claude', model: 'claude-sonnet-5-5' }];
+  var pvName = function (id) { var x = PV.filter(function (p) { return p.id === id; })[0]; return x ? x.name : id; };
+  var pvModel = function (id) { var x = PV.filter(function (p) { return p.id === id; })[0]; return x ? x.model : ''; };
   var onNow = c.ai.on && !!keys[prov];
-  h += '<div class="card"><h2><span class="hic" style="background:#f3efff;color:#6d28d9">' + ic('zap') + '</span>Asisten AI <span class="pill ' + (onNow ? 'done' : 'draft') + '">' + (onNow ? 'ON · ' + (prov === 'claude' ? 'Claude' : 'Gemini') : 'OFF') + '</span></h2>' +
+  h += '<div class="card"><h2><span class="hic" style="background:#f3efff;color:#6d28d9">' + ic('zap') + '</span>Asisten AI <span class="pill ' + (onNow ? 'done' : 'draft') + '">' + (onNow ? 'ON · ' + esc(pvName(prov)) + (back ? ' + ' + esc(pvName(back)) : '') : 'OFF') + '</span></h2>' +
     '<div class="small muted" style="margin:-6px 0 10px">Saat OFF, saran tetap muncul gratis dari <b>kasus serupa</b>. Data yang dikirim ke AI hanya merek, model, sistem, keluhan & DTC (tanpa nopol, nama, foto).</div>' +
     '<label>Penyedia</label><div class="aiprov">' +
-    [['off', 'Mati', 'Pakai kasus serupa saja'], ['gemini', 'Gemini', 'Tier gratis Google'], ['claude', 'Claude API', 'Berbayar, lebih akurat']].map(function (x) {
+    [['off', 'Mati', 'Kasus serupa saja']].concat(PV.map(function (p) { return [p.id, p.id === 'claude' ? 'Claude API' : p.name, (TS_AI_INFO[p.id] || {}).d || '']; })).map(function (x) {
       var on = x[0] === 'off' ? !c.ai.on : c.ai.on && prov === x[0];
-      return '<label class="aiopt' + (on ? ' on' : '') + '"><input type="radio" name="aip" value="' + x[0] + '"' + (on ? ' checked' : '') + '><b>' + x[1] + '</b><small>' + x[2] + '</small></label>';
+      return '<label class="aiopt' + (on ? ' on' : '') + '"><input type="radio" name="aip" value="' + x[0] + '"' + (on ? ' checked' : '') + '><b>' + esc(x[1]) + (x[0] !== 'off' && keys[x[0]] ? ' <span class="kdot" title="Key tersimpan">●</span>' : '') + '</b><small>' + esc(x[2]) + '</small></label>';
     }).join('') + '</div>' +
     '<div id="aiKeyBox"></div>' +
     '<div id="aiMore"><label style="margin-top:10px">Saran AI dikirim</label>' +
@@ -1070,7 +1073,8 @@ function tsAdminDraw(el, a) {
     '<label class="check"><input type="radio" name="aim" value="draf"' + (c.ai.mode === 'draf' ? ' checked' : '') + '> <span><b>Draf untuk Tech Support dulu</b>, teknisi melihat setelah disetujui</span></label>' +
     '<label class="check" style="margin-top:8px"><input type="checkbox" id="aiAuto"' + ((c.ai.auto || {}).on !== false ? ' checked' : '') + '> <span><b>Balas otomatis</b> pesan teknisi bila Tech Support belum membalas dalam ' +
     '<select id="aiMenit" class="stsel" style="display:inline-block;margin:0 4px">' + [3, 5, 10, 15, 30].map(function (n) { return '<option value="' + n + '"' + (((c.ai.auto || {}).menit || 5) === n ? ' selected' : '') + '>' + n + '</option>'; }).join('') + '</select> menit</span></label>' +
-    '<label>Model <span class="opt">kosongkan = otomatis</span></label><input type="text" id="aiM" value="' + esc(c.ai.model || '') + '" placeholder="' + esc(a.aiModel || '') + '"></div>' +
+    '<label>Model <span class="opt">kosongkan = otomatis</span></label><input type="text" id="aiM" value="' + esc(c.ai.model || '') + '" placeholder="' + esc(a.aiModel || '') + '">' +
+    '<label>Penyedia cadangan <span class="opt">dipakai otomatis bila penyedia utama penuh / error</span></label><select id="aiB"></select></div>' +
     '<div id="aiTestRes"></div><div class="row" style="margin-top:10px;gap:8px"><button class="btn block" id="aiSave">Simpan asisten AI</button><button class="btn sec" id="aiTest">' + ic('zap', 'sm') + ' Tes</button></div></div>';
   h += '<div class="card"><h2><span class="hic" style="background:var(--bad-bg);color:var(--bad)">' + ic('warn') + '</span>Kasus URGENT</h2>' +
     '<label class="check"><input type="checkbox" id="urB"' + (c.urgent.buttons !== false ? ' checked' : '') + '> Tampilkan tombol Telepon &amp; WhatsApp</label>' +
@@ -1111,9 +1115,17 @@ function tsAdminDraw(el, a) {
     $('#aiMore').style.display = p === 'off' ? 'none' : '';
     $('#aiTest').style.display = p === 'off' ? 'none' : '';
     if (p === 'off') { box.innerHTML = ''; return; }
-    var nm = p === 'claude' ? 'Claude' : 'Gemini', k = keys[p];
-    box.innerHTML = '<div class="msg ' + (k ? 'ok' : 'warn') + '">' + ic(k ? 'check' : 'key') + '<span>' + (k ? 'API key ' + nm + ' terpasang (' + esc(k) + '). Tersimpan aman di server, tidak tampil di aplikasi.' : 'Belum ada API key ' + nm + '.') +
-      (p === 'gemini' ? '<br><small>Tier gratis: Google boleh memakai data untuk mengembangkan produknya. Buat key di aistudio.google.com.</small>' : '<br><small>Buat key di console.anthropic.com → API Keys. Bayar sesuai pemakaian.</small>') + '</span></div>' +
+    var nm = pvName(p), k = keys[p], inf = TS_AI_INFO[p] || {};
+    var mi = $('#aiM'); if (mi) { mi.placeholder = pvModel(p); if (mi.dataset.p && mi.dataset.p !== p) mi.value = ''; mi.dataset.p = p; }
+    var bs = $('#aiB');
+    if (bs) {
+      var cur = bs.dataset.init ? bs.value : back; bs.dataset.init = '1';
+      bs.innerHTML = '<option value="">Tidak ada</option>' + PV.filter(function (x) { return x.id !== p; }).map(function (x) {
+        return '<option value="' + x.id + '"' + (keys[x.id] ? '' : ' disabled') + (cur === x.id && keys[x.id] ? ' selected' : '') + '>' + esc(x.name) + (keys[x.id] ? '' : ' (belum ada key)') + '</option>';
+      }).join('');
+    }
+    box.innerHTML = '<div class="msg ' + (k ? 'ok' : 'warn') + '">' + ic(k ? 'check' : 'key') + '<span>' + (k ? 'API key ' + esc(nm) + ' terpasang (' + esc(k) + '). Tersimpan aman di server, tidak tampil di aplikasi.' : 'Belum ada API key ' + esc(nm) + '.') +
+      '<br><small>' + esc(inf.note || '') + (inf.url ? ' Buat key di <a href="https://' + inf.url + '" target="_blank" rel="noopener">' + esc(inf.url) + '</a>.' : '') + '</small></span></div>' +
       '<div class="pwf"><input type="password" id="aiK" autocomplete="off" placeholder="' + (k ? 'Tempel key baru untuk mengganti' : 'Tempel API key ' + nm + ' di sini') + '"><button type="button" class="eye" aria-label="Tampilkan">' + ic('eye') + '</button></div>' +
       '<div class="row" style="gap:8px;margin-top:8px"><button class="btn sec sm" id="aiKS">' + ic('key', 'sm') + ' Simpan key</button>' + (k ? '<button class="btn sec sm" id="aiKD" style="color:var(--bad)">' + ic('trash', 'sm') + ' Hapus key</button>' : '') + '</div>';
     $('#aiKS').onclick = function () {
@@ -1131,10 +1143,10 @@ function tsAdminDraw(el, a) {
   drawKey();
   $('#aiSave').onclick = function () {
     var p = curP(), md = $$('[name=aim]').filter(function (x) { return x.checked; })[0];
-    save('ai', { on: p !== 'off', provider: p === 'off' ? prov : p, mode: md ? md.value : 'langsung', model: $('#aiM').value.trim(), auto: { on: $('#aiAuto').checked, menit: +$('#aiMenit').value } }, this);
+    save('ai', { on: p !== 'off', provider: p === 'off' ? prov : p, cadangan: p === 'off' ? back : ($('#aiB') ? $('#aiB').value : ''), mode: md ? md.value : 'langsung', model: $('#aiM').value.trim(), auto: { on: $('#aiAuto').checked, menit: +$('#aiMenit').value } }, this);
   };
   $('#aiTest').onclick = function () {
-    var b = this, p = curP(); b.disabled = true; $('#aiTestRes').innerHTML = '<div class="msg info"><span class="spin xs"></span><span>Menghubungi ' + (p === 'claude' ? 'Claude' : 'Gemini') + '…</span></div>';
+    var b = this, p = curP(); b.disabled = true; $('#aiTestRes').innerHTML = '<div class="msg info"><span class="spin xs"></span><span>Menghubungi ' + esc(pvName(p)) + '…</span></div>';
     api('tsAiTest', p).then(function (r) { $('#aiTestRes').innerHTML = '<div class="msg ok">' + ic('check') + '<span><b>Berhasil</b> · ' + esc(r.provider + ' ' + r.model) + (r.utama && r.utama !== r.model ? ' (model utama ' + esc(r.utama) + ' sedang penuh, otomatis pakai cadangan)' : '') + ' · ' + Math.round(r.ms / 100) / 10 + ' dtk<br>"' + esc(r.sample) + '"</span></div>'; },
       function (e) { $('#aiTestRes').innerHTML = '<div class="msg err">' + ic('warn') + '<span>' + esc(errMsg(e)) + '</span></div>'; }).finally(function () { b.disabled = false; });
   };
@@ -1164,6 +1176,14 @@ function tsAdminDraw(el, a) {
     this.value = '';
   };
 }
+var TS_AI_INFO = {
+  gemini: { d: 'Gratis (Google)', note: 'Tier gratis: Google boleh memakai data untuk mengembangkan produknya.', url: 'aistudio.google.com/apikey' },
+  claude: { d: 'Berbayar, paling akurat', note: 'Bayar sesuai pemakaian.', url: 'console.anthropic.com/settings/keys' },
+  openai: { d: 'Berbayar (ChatGPT)', note: 'Bayar sesuai pemakaian.', url: 'platform.openai.com/api-keys' },
+  groq: { d: 'Ada tier gratis, cepat', note: 'Tier gratis dengan batas pemakaian per menit/hari.', url: 'console.groq.com/keys' },
+  openrouter: { d: 'Ada model gratis', note: 'Model "openrouter/free" memilih model gratis secara otomatis.', url: 'openrouter.ai/keys' },
+  deepseek: { d: 'Berbayar murah', note: 'Bayar sesuai pemakaian (isi saldo dulu).', url: 'platform.deepseek.com/api_keys' }
+};
 /** CSV RFC 4180 sederhana (kutip ganda, baris baru di dalam sel). */
 function tsCsv(text) {
   var rows = [], row = [], cell = '', q = false;
