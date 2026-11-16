@@ -708,7 +708,7 @@ function tsLogHtml(d) {
     if (l.peran === 'ai') {
       var src = l.meta && l.meta.auto ? 'Asisten AI · balasan otomatis (Tech Support belum membalas ' + (l.meta.menit || 5) + ' mnt)' : l.jenis === 'ai' ? 'Asisten AI · saran awal' : 'Kasus serupa · otomatis';
       var st = l.meta && l.meta.dicek ? ' · sudah dicek ' + esc(String(l.meta.by || '').split(' ')[0]) : l.meta && l.meta.hidden ? ' · draf (belum dikirim ke teknisi)' : ' · belum dicek Tech Support';
-      return '<div class="lmsg ai"><div class="lh">' + src + st + ' · ' + esc(tm) + '</div><div class="lb">' + esc(l.teks) + '</div>' +
+      return '<div class="lmsg ai"><div class="lh">' + src + st + ' · ' + esc(tm) + '</div><div class="lb">' + esc(tsStripMd(l.teks)) + '</div>' +
         (staff && !(l.meta && l.meta.dicek) ? '<div class="row" style="margin-top:6px"><button class="btn sm" data-aiok="' + esc(l.id) + '" style="background:#6d28d9">' + ic('check', 'sm') + (l.meta && l.meta.hidden ? ' Kirim ke teknisi' : ' Setujui saran') + '</button></div>' : '') + '</div>';
     }
     var mine = l.by === me, right = l.peran === 'ts';
@@ -720,6 +720,7 @@ function tsLogHtml(d) {
 }
 /* ---- pesan yang sedang dikirim: langsung tampil tanpa menunggu server ---- */
 TSA.pend = [];
+function tsStripMd(t) { return String(t || '').replace(/\*\*(.+?)\*\*/g, '$1').replace(/__(.+?)__/g, '$1').replace(/^#{1,6}\s*/gm, ''); }
 function tsPendSide(d) { return d.flags.staff && !d.flags.mine ? 'ts' : 'tk'; }
 function tsPendOne(p, side) {
   var st = p.state === 'err' ? '<span class="pst err">Gagal terkirim · ketuk untuk ulangi</span>' : p.state === 'ok' ? '<span class="pst">✓ Terkirim</span>' : '<span class="pst"><span class="spin xs"></span> ' + esc(p.status || 'Mengirim…') + '</span>';
