@@ -196,7 +196,7 @@ function tsCard(r, opts) {
   return '<div class="tscase ' + tsStClass(r.status) + (r.urgent && tsIsOpen(r.status) ? ' urgent' : '') + '" data-ts="' + esc(r.id) + '" role="button" tabindex="0">' +
     '<div class="r1"><span class="row" style="gap:6px;flex-wrap:wrap">' + (r.urgent && tsIsOpen(r.status) ? '<span class="pill urg">URGENT</span>' : '') + tsPill(r.status) + '<span class="small muted">' + esc(age) + '</span></span><span class="small muted mono">' + esc(r.id) + '</span></div>' +
     '<div class="r2"><b>' + esc(tsVeh(r)) + '</b>' + (r.nopol ? ' · ' + esc(r.nopol) : '') + '</div>' +
-    '<div class="r3">' + [r.sistem, r.dtc, r.outlet, r.teknisi ? 'dari ' + r.teknisi : ''].filter(Boolean).map(esc).join(' · ') + '</div>' +
+    '<div class="r3">' + [r.sistem, r.dtc, r.outlet, r.teknisi ? 'dari ' + r.teknisi : '', r.to && !r.hname ? 'untuk ' + r.to : ''].filter(Boolean).map(esc).join(' · ') + '</div>' +
     (opts.full !== false ? '<div class="r4">' + esc(r.keluhan) + '</div>' : '') +
     (r.hname && opts.handler !== false ? '<div class="small muted" style="margin-top:4px">' + ic('user', 'xs') + ' ' + esc(r.hname) + (r.src && r.src !== 'Aplikasi' ? ' · ' + esc(r.src) : '') + '</div>' : '') +
     (opts.take && tsIsOpen(r.status) && r.handler !== S.user.username ? '<div class="row" style="margin-top:8px"><button class="btn or sm" data-take="' + esc(r.id) + '">Tangani</button><button class="btn sec sm" data-open="' + esc(r.id) + '">Lihat</button></div>' : '') +
@@ -255,10 +255,12 @@ function tsRenderInbox(m) {
   var open = TSA.list.filter(function (r) { return tsIsOpen(r.status); });
   var chips = [['', 'Berjalan', open.length], ['Baru', 'Baru', TSA.list.filter(function (r) { return r.status === 'Baru'; }).length],
     ['Analysis', 'Analysis', TSA.list.filter(function (r) { return r.status === 'Analysis'; }).length], ['Pending part', 'Pending part', TSA.list.filter(function (r) { return r.status === 'Pending part'; }).length],
+    ['forme', 'Untuk saya', open.filter(function (r) { return r.tou === S.user.username && r.handler !== S.user.username; }).length],
     ['mine', 'Saya tangani', open.filter(function (r) { return r.handler === S.user.username; }).length], ['final', 'Selesai', TSA.list.filter(function (r) { return tsIsFinal(r.status); }).length]];
   h += '<div class="chips">' + chips.map(function (c) { return '<button class="chip' + (f === c[0] ? ' on' : '') + '" data-if="' + esc(c[0]) + '">' + c[1] + '<b>' + c[2] + '</b></button>'; }).join('') + '</div>';
   var l = TSA.list.filter(function (r) {
     if (f === '') return tsIsOpen(r.status);
+    if (f === 'forme') return tsIsOpen(r.status) && r.tou === S.user.username && r.handler !== S.user.username;
     if (f === 'mine') return tsIsOpen(r.status) && r.handler === S.user.username;
     if (f === 'final') return tsIsFinal(r.status);
     return r.status === f;
@@ -461,7 +463,23 @@ window.addEventListener('beforeunload', function (e) { if (TSA.q && TSA.q.length
 /* ---------------- form minta bantuan (alur A) ---------------- */
 function tsEmptyForm() {
   var outs = TSA.boot.outlets || [];
-  return { v: { outlet: S.user.outlet === '*' || isAdmin() ? '' : S.user.outlet, brand: '', model: '', nopol: '', odo: '', sistem: '', keluhan: '', dtc: '', urgent: false }, files: {}, key: 'ts' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), outs: outs };
+  return { v: { outlet: S.user.outlet === '*' || isAdmin() ? '' : S.user.outlet, brand: '', model: '', nopol: '', odo: '', sistem: '', keluhan: '', dtc: '', urgent: false, tujuan: tsLastWho() }, files: {}, key: 'ts' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), outs: outs };
+}
+/** Anggota tim yang bisa ditanya teknisi (selain dirinya sendiri). */
+function tsAskTeam() { return (tsCfg().team || []).filter(function (m) { return m.username !== S.user.username; }); }
+function tsLastWho() {
+  try { var w = store('vt_tstuj_' + S.user.username) || ''; return tsAskTeam().some(function (m) { return m.username === w; }) ? w : ''; } catch (e) { return ''; }
+}
+/** Pilihan "Tanya ke siapa?" — muncul bila tim Tech Support lebih dari satu orang. */
+function tsWhoPick(v) {
+  var team = tsAskTeam(); if (team.length < 2) return '';
+  var cur = team.some(function (m) { return m.username === v.tujuan; }) ? v.tujuan : '';
+  var one = function (val, av, name, sub) {
+    return '<label><input type="radio" name="t_tuj" value="' + esc(val) + '"' + (cur === val ? ' checked' : '') + '><span class="wp"><span class="avatar">' + esc(av) + '</span><span><b>' + esc(name) + '</b><small>' + esc(sub) + '</small></span></span></label>';
+  };
+  return '<div class="card stack"><div class="sec-n">3 · TANYA KE SIAPA?</div><div class="small muted" style="margin:-2px 0 2px">Pilih orang yang ingin kamu tanya. Anggota lain tetap bisa ikut membantu.</div><div class="whopick" id="t_who">' +
+    one('', '★', 'Siapa saja', 'Semua tim Tech Support diberi tahu') +
+    team.map(function (m) { return one(m.username, initials(m.nama), m.nama, m.peran || 'Technical Support'); }).join('') + '</div></div>';
 }
 function tsSaveFormText() { try { if (TSA.form) store('vt_tsform_' + S.user.username, JSON.stringify({ v: TSA.form.v, key: TSA.form.key })); } catch (e) { /* */ } }
 function tsVehicleFields(v, outs, withOutlet) {
@@ -480,6 +498,7 @@ function tsSystemChips(v) {
 function tsCollect(F) {
   var g = function (id) { var e = document.getElementById(id); return e ? e.value : undefined; };
   ['outlet', 'brand', 'model', 'nopol', 'odo', 'keluhan', 'dtc', 'teknisi', 'tanggal', 'penyebab', 'solusi', 'part'].forEach(function (k) { var x = g('t_' + k); if (x !== undefined) F.v[k] = x; });
+  var wr = document.querySelector('input[name=t_tuj]:checked'); if (wr) F.v.tujuan = wr.value;
   var u = document.getElementById('t_urgent'); if (u) F.v.urgent = u.checked;
   var r = document.getElementById('t_ref'); if (r) F.v.referensi = r.checked;
 }
@@ -495,7 +514,8 @@ function tsRenderForm(m) {
     '<div class="card stack"><div class="sec-n">2 · MASALAH</div>' + tsSystemChips(v) +
     '<div><label>Keluhan / gejala <span class="req">*</span></label><textarea id="t_keluhan" placeholder="Apa yang terjadi, sejak kapan, sudah dicek apa saja">' + esc(v.keluhan) + '</textarea></div>' +
     '<div><label>Kode DTC <span class="opt">opsional</span></label><input type="text" id="t_dtc" class="mono" value="' + esc(v.dtc) + '" placeholder="P0300, P0171" autocapitalize="characters"></div></div>' +
-    '<div class="card"><div class="sec-n">3 · FOTO & VIDEO</div><div class="small muted" style="margin:2px 0 6px">Ambil langsung dari kamera. Foto/video dikompres & diberi watermark otomatis.</div><div id="t_picks"></div></div>' +
+    tsWhoPick(v) +
+    '<div class="card"><div class="sec-n">' + (tsAskTeam().length >= 2 ? '4' : '3') + ' · FOTO & VIDEO</div><div class="small muted" style="margin:2px 0 6px">Ambil langsung dari kamera. Foto/video dikompres & diberi watermark otomatis.</div><div id="t_picks"></div></div>' +
     '<div id="t_sim"></div>' +
     '<label class="urgbox"><input type="checkbox" id="t_urgent"' + (v.urgent ? ' checked' : '') + '><span><b>URGENT</b> · mobil mogok / customer menunggu. Tombol telepon &amp; WhatsApp Tech Support langsung muncul.</span></label>' +
     '<div id="t_err" class="msg err hidden"></div>' +
@@ -556,6 +576,7 @@ function tsCropForOcr(file) {
   });
 }
 function tsShowErr(id, msg) { var e = $(id); if (!e) { toast(msg); return; } e.innerHTML = ic('warn') + '<span>' + esc(msg) + '</span>'; e.classList.remove('hidden'); e.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+function tsWhoName(un) { var m = (tsCfg().team || []).filter(function (x) { return x.username === un; })[0]; return m ? m.nama : ''; }
 function tsSubmitRequest() {
   var F = TSA.form; tsCollect(F);
   var v = F.v, miss = [];
@@ -570,11 +591,12 @@ function tsSubmitRequest() {
   tsWaitProc(F).then(function () { if ($('#t_go')) $('#t_go').textContent = 'Mengirim…'; return api('tsCreate', v, F.key); }).then(function (r) {
     var id = r.id;
     store('vt_tsform_' + S.user.username, null);
+    try { store('vt_tstuj_' + S.user.username, v.tujuan || ''); } catch (e) { /* */ }
     TSA.form = null;
     tsBgUpload(id, tsFilesOf(F), tsLabels(TS_PHOTOS), function () {
       api('tsAssist', id).catch(function () { /* opsional */ }).then(function () { if (TSA.caseId === id) tsRefreshCase(); });
     });
-    toast('Terkirim ke Tech Support.' + (Object.keys(tsFilesOf(F)).length ? ' Foto dikirim di latar.' : '') + (v.urgent ? ' Tombol telepon & WhatsApp ada di halaman kasus.' : ''), 5000);
+    toast('Terkirim ke ' + (tsWhoName(v.tujuan) || 'Tech Support') + '.' + (Object.keys(tsFilesOf(F)).length ? ' Foto dikirim di latar.' : '') + (v.urgent ? ' Tombol telepon & WhatsApp ada di halaman kasus.' : ''), 5000);
     if (!Object.keys(tsFilesOf(F)).length) api('tsAssist', id).catch(function () { /* */ }).then(function () { if (TSA.caseId === id) tsRefreshCase(); });
     tsSyncNow();
     TSA.back = tsHome();
@@ -828,7 +850,7 @@ function tsRenderCase(m) {
   h += '<div class="card" style="padding:12px 14px">' + tsProgress(t.Status) +
     '<div class="row" style="flex-wrap:wrap;gap:6px;margin-top:10px">' + (t.Urgent === 'TRUE' ? '<span class="pill urg">URGENT</span>' : '') + (t.Sistem ? '<span class="tag b">' + esc(t.Sistem) + '</span>' : '') +
     String(t.DTC || '').split(/,\s*/).filter(Boolean).map(function (x) { return '<span class="tag mono">' + esc(x) + '</span>'; }).join('') +
-    '<span class="small muted">Teknisi: <b>' + esc(t.Teknisi || '-') + '</b></span><span class="small muted">Ditangani: <b>' + esc(t.HandlerName || 'belum') + '</b></span></div>' +
+    '<span class="small muted">Teknisi: <b>' + esc(t.Teknisi || '-') + '</b></span><span class="small muted">Ditangani: <b>' + esc(t.HandlerName || 'belum') + '</b></span>' + (t.DitujukanNama ? '<span class="small muted">Ditanyakan ke: <b>' + esc(t.DitujukanNama) + '</b></span>' : '') + '</div>' +
     '<dl class="kv" style="margin-top:10px">' + kv('Keluhan', t.Keluhan) + (t.ODO ? kv('ODO', Number(t.ODO).toLocaleString('id-ID') + ' km') : '') + (t.VIN ? kv('VIN', t.VIN) : '') + kv('Diminta', fmtDT(t.CreatedAt) + ' · ' + (t.Sumber || 'Aplikasi')) + '</dl>';
   if (F.staff) {
     h += '<div class="row" style="flex-wrap:wrap;gap:8px;margin-top:12px">' +
