@@ -640,15 +640,21 @@ function tsOpen(id) {
   if (!S.app || S.app !== 'ts') { S.app = 'ts'; store(tsAppKey(), 'ts'); renderApsw(); if (!TSA.boot) tsLoad(); }
   closeModal();
   if (S.tab !== 'ts:case') TSA.back = S.tab && String(S.tab).indexOf('ts:') === 0 ? S.tab : tsHome();
-  if (TSA.caseId !== id) TSA.caseData = null;
+  if (TSA.caseId !== id) TSA.caseData = TSA.cache[id] || null;
   TSA.caseId = id;
   S.tab = 'ts:case';
   renderNav(); renderView(); window.scrollTo(0, 0);
   tsRefreshCase();
 }
+/** Muat detail kasus. Permintaan yang bertumpuk digabung (hanya 1 yang jalan + 1 susulan). */
+TSA.cache = {};
+var tsRef = { busy: null, again: false };
 function tsRefreshCase() {
+  if (tsRef.busy) { tsRef.again = true; return tsRef.busy; }
   var id = TSA.caseId;
-  return apiRetry('tsGet', id).then(function (d) {
+  if (!id) return Promise.resolve();
+  tsRef.busy = apiRetry('tsGet', id).then(function (d) {
+    TSA.cache[id] = d;
     if (TSA.caseId !== id) return;
     TSA.caseData = d;
     if (S.tab === 'ts:case') tsRenderCase($('#main'));
@@ -656,7 +662,11 @@ function tsRefreshCase() {
     if (TSA.caseId !== id) return;
     toast(errMsg(e));
     if (!TSA.caseData) { S.tab = TSA.back || tsHome(); renderNav(); renderView(); }
+  }).finally(function () {
+    tsRef.busy = null;
+    if (tsRef.again) { tsRef.again = false; if (TSA.caseId) tsRefreshCase(); }
   });
+  return tsRef.busy;
 }
 function tsWaNum(n) { n = String(n || '').replace(/[^0-9+]/g, ''); if (n.charAt(0) === '+') n = n.slice(1); if (n.charAt(0) === '0') n = '62' + n.slice(1); return n; }
 function tsUrgentMsg(t) {
@@ -795,7 +805,14 @@ function tsSendFile(t, file, src) {
 
 function tsRenderCase(m) {
   var d = TSA.caseData;
-  if (!d) { m.innerHTML = '<div class="empty"><div class="spin" style="margin:0 auto 10px"></div>Memuat kasus…</div>'; return; }
+  if (!d) {
+    var r0 = TSA.list.filter(function (x) { return x.id === TSA.caseId; })[0];
+    m.innerHTML = r0 ? '<div class="tscasehead"><button class="hbtn" id="tsBack" aria-label="Kembali">' + ic('chev', '') + '</button><div style="flex:1;min-width:0"><div class="mono" style="font-weight:800">' + esc(r0.id) + '</div><div class="small muted">' + esc(tsVeh(r0)) + (r0.nopol ? ' · ' + esc(r0.nopol) : '') + ' · ' + esc(r0.outlet) + '</div></div>' + tsPill(r0.status) + '</div>' +
+      '<div class="card"><dl class="kv">' + kv('Keluhan', r0.keluhan) + '</dl></div><div class="empty small"><div class="spin" style="margin:0 auto 8px"></div>Memuat log & foto…</div>'
+      : '<div class="empty"><div class="spin" style="margin:0 auto 10px"></div>Memuat kasus…</div>';
+    if ($('#tsBack')) $('#tsBack').onclick = function () { TSA.caseId = null; TSA.caseData = null; go(TSA.back || tsHome()); };
+    return;
+  }
   var t = d.t, F = d.flags, draftMsg = $('#lmsg') ? $('#lmsg').value : '';
   var focused = document.activeElement && document.activeElement.id === 'lmsg', caret = focused ? document.activeElement.selectionStart : 0;
   var h = '<div class="tscasehead"><button class="hbtn" id="tsBack" aria-label="Kembali">' + ic('chev', '') + '</button><div style="flex:1;min-width:0"><div class="mono" style="font-weight:800">' + esc(t.TicketID) + (t.NoLama ? ' <span class="tag">' + esc(t.NoLama) + '</span>' : '') + '</div>' +
@@ -1088,6 +1105,7 @@ function tsAdminDraw(el, a) {
     '<div><label>Sistem (1 per baris)</label><textarea id="lsS" style="min-height:160px">' + esc(c.systems.join('\n')) + '</textarea></div></div><button class="btn sec block" id="lsSave" style="margin-top:10px">Simpan daftar</button></div>';
   h += '<div class="card"><h2><span class="hic">' + ic('upload') + '</span>Import data Google Form lama</h2><div class="small muted" style="margin:-6px 0 10px">Pilih file CSV dari sheet "Form Responses 1" (File → Download → CSV). Baris yang sudah pernah diimport dilewati. Link foto & PDF lama tetap dipakai.</div>' +
     '<input type="file" id="imF" accept=".csv,text/csv" class="hidden"><button class="btn sec block" id="imGo">' + ic('upload') + ' Pilih file CSV</button><div id="imRes"></div></div>';
+  h += '<div class="card"><h2><span class="hic">' + ic('zap') + '</span>Cek kecepatan</h2><div class="small muted" style="margin:-6px 0 10px">Mengukur bagian mana yang lambat: koneksi HP, antrean server Google, atau pembacaan data.</div><button class="btn sec block" id="spGo">' + ic('zap') + ' Mulai cek</button><div id="spRes"></div></div>';
   h += '<div class="card"><h2><span class="hic">' + ic('folder') + '</span>Data</h2><div class="small">Total kasus: <b>' + a.total + '</b></div><div class="stack" style="margin-top:10px"><a class="btn sec block" target="_blank" rel="noopener" href="' + esc(a.dbUrl) + '">' + ic('file') + ' Buka spreadsheet TECHNICAL SUPPORT DB</a><a class="btn sec block" target="_blank" rel="noopener" href="' + esc(a.folderUrl) + '">' + ic('folder') + ' Buka folder Drive TECHNICAL SUPPORT</a></div></div>';
   el.innerHTML = h;
   var drawTeam = function () {
@@ -1173,6 +1191,7 @@ function tsAdminDraw(el, a) {
     var b = this;
     save('brands', $('#lsB').value, null).then(function () { return api('tsAdminSave', 'systems', $('#lsS').value); }).then(function (na) { if (na) { tsAdminDraw(el, na); tsLoad(true); } }, function (e) { toast(errMsg(e)); b.disabled = false; });
   };
+  $('#spGo').onclick = function () { tsSpeedCheck(this); };
   $('#imGo').onclick = function () { $('#imF').click(); };
   $('#imF').onchange = function () {
     var file = this.files && this.files[0]; if (!file) return;
@@ -1195,6 +1214,47 @@ function tsAdminDraw(el, a) {
   };
 }
 var AIS = { level: 'seimbang', model: '' };
+function tsSpeedCheck(btn) {
+  var res = $('#spRes'), rows = [];
+  btn.disabled = true;
+  var fmt = function (ms) { return ms >= 1000 ? (ms / 1000).toFixed(1).replace('.', ',') + ' dtk' : ms + ' ms'; };
+  var lvl = function (ms, ok, warn) { return ms <= ok ? 'ok' : ms <= warn ? 'warn' : 'bad'; };
+  var draw = function (extra) {
+    res.innerHTML = '<table class="tbl sp" style="margin-top:10px"><thead><tr><th>Langkah</th><th>Waktu</th><th>Keterangan</th></tr></thead><tbody>' + rows.map(function (r) {
+      return '<tr><td>' + esc(r[0]) + '</td><td><span class="spd ' + r[2] + '">' + esc(fmt(r[1])) + '</span></td><td class="small">' + esc(r[3] || '') + '</td></tr>';
+    }).join('') + '</tbody></table>' + (extra || '');
+  };
+  var call = function (label, action, args, ok, warn) {
+    var t0 = Date.now();
+    return api.apply(null, [action].concat(args || [])).then(function (d) {
+      var rt = Date.now() - t0, last = (S.msLog || []).filter(function (x) { return x.a === action; }).pop(), srv = last && last.srv ? last.srv.total : null;
+      rows.push([label, rt, lvl(rt, ok, warn), srv !== null ? 'server bekerja ' + fmt(srv) + ', sisanya ' + fmt(Math.max(0, rt - srv)) + ' koneksi/antrean Google' : '']);
+      draw(); return d;
+    }, function (e) { rows.push([label, Date.now() - t0, 'bad', errMsg(e)]); draw(); });
+  };
+  res.innerHTML = '<div class="msg info" style="margin-top:10px"><span class="spin xs"></span><span>Mengukur… (± 20–40 detik)</span></div>';
+  call('Respon server (ping)', 'ping', [], 1500, 3500)
+    .then(function () { return call('Buka aplikasi (VTAG)', 'bootstrap', [], 3000, 6000); })
+    .then(function () { return call('Buka Tech Support', 'tsBoot', [], 3000, 6000); })
+    .then(function () { var r = TSA.list[0]; return r ? call('Buka 1 kasus TS', 'tsGet', [r.id], 2500, 5000) : null; })
+    .then(function () { return api('tsSpeed'); })
+    .then(function (parts) {
+      var body = '<div class="sec-t" style="margin-top:12px">Rincian di server</div><table class="tbl sp"><tbody>' + (parts || []).map(function (p) {
+        return '<tr><td>' + esc(p.bagian) + '</td><td><span class="spd ' + lvl(p.ms, 700, 2000) + '">' + esc(fmt(p.ms)) + '</span></td><td class="small">' + esc(p.info) + '</td></tr>';
+      }).join('') + '</tbody></table>';
+      var slow = rows.filter(function (r) { return r[2] === 'bad'; }).length;
+      var ping = rows[0] ? rows[0][1] : 0;
+      var tip = ping > 3500 ? 'Respon server dasar (ping) sudah lambat: penyebabnya koneksi internet HP/laptop atau server Google sedang sibuk, bukan data aplikasi.'
+        : slow ? 'Ada langkah yang lambat. Lihat rincian server di bawah: baris berwarna merah adalah bagian yang paling makan waktu.' : 'Semua langkah dalam batas wajar untuk Apps Script.';
+      draw('<div class="msg ' + (slow || ping > 3500 ? 'warn' : 'ok') + '" style="margin-top:10px">' + ic(slow ? 'warn' : 'check') + '<span>' + esc(tip) + '</span></div>' + body +
+        '<button class="btn sec sm" id="spCopy" style="margin-top:10px">' + ic('file', 'sm') + ' Salin hasil</button>');
+      $('#spCopy').onclick = function () {
+        var txt = rows.map(function (r) { return r[0] + ': ' + fmt(r[1]) + (r[3] ? ' (' + r[3] + ')' : ''); }).concat((parts || []).map(function (p) { return p.bagian + ': ' + fmt(p.ms) + ' ' + p.info; })).join('\n');
+        try { navigator.clipboard.writeText(txt); toast('Hasil disalin. Tempel ke chat Claude.'); } catch (e) { toast('Tidak bisa menyalin.'); }
+      };
+    }, function (e) { draw('<div class="msg err">' + ic('warn') + '<span>' + esc(errMsg(e)) + '</span></div>'); })
+    .finally(function () { btn.disabled = false; });
+}
 var TS_AI_INFO = {
   gemini: { d: 'Gratis (Google)', note: 'Tier gratis: Google boleh memakai data untuk mengembangkan produknya.', url: 'aistudio.google.com/apikey' },
   claude: { d: 'Berbayar, paling akurat', note: 'Bayar sesuai pemakaian.', url: 'console.anthropic.com/settings/keys' },

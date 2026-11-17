@@ -4,7 +4,7 @@
 'use strict';
 
 var CONFIG = {
-  VERSION: '2.5.10',
+  VERSION: '2.5.11',
   API_URL: 'https://script.google.com/macros/s/AKfycbyGcLEZZ2Xm0nYl2gq53Qng-KmOUYSqvCrlwtAfRrxROwIREyGL3JyG9CQPlT_9QBYq1Q/exec',
   POLL_MS: 20000,            // cek data baru tiap 20 detik
   CHUNK: 2359296,            // 9 x 256 KB per potongan upload
@@ -139,6 +139,7 @@ function api(action) {
   var ctrl = window.AbortController ? new AbortController() : null;
   var ms = action === 'uploadChunk' || action === 'tsUploadChunk' ? 150000 : action === 'printCase' || action === 'tsPdf' ? 240000 : 70000;
   var timer = setTimeout(function () { if (ctrl) ctrl.abort(); }, ms);
+  var tStart = Date.now();
   return fetch(CONFIG.API_URL, {
     method: 'POST', redirect: 'follow', cache: 'no-store',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -156,6 +157,8 @@ function api(action) {
         if (j.error === 'AUTH') { onAuthLost(); throw new AppError('Sesi berakhir, silakan login lagi.', 'auth'); }
         throw new AppError(j.error, 'app');
       }
+      // catat waktu: total dari HP vs waktu kerja server (untuk Cek kecepatan)
+      try { S.msLog = (S.msLog || []).concat([{ a: action, rt: Date.now() - tStart, srv: j.ms || null, at: Date.now() }]).slice(-40); } catch (x) { /* */ }
       return j.data;
     });
   }, function (e) {
