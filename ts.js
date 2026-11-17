@@ -479,7 +479,8 @@ function tsWhoPick(v) {
   };
   return '<div class="card stack"><div class="sec-n">3 · TANYA KE SIAPA?</div><div class="small muted" style="margin:-2px 0 2px">Pilih orang yang ingin kamu tanya. Anggota lain tetap bisa ikut membantu.</div><div class="whopick" id="t_who">' +
     one('', '★', 'Siapa saja', 'Semua tim Tech Support diberi tahu') +
-    team.map(function (m) { return one(m.username, initials(m.nama), m.nama, m.peran || 'Technical Support'); }).join('') + '</div></div>';
+    team.map(function (m) { return one(m.username, initials(m.nama), m.nama, m.peran || 'Technical Support'); }).join('') + '</div>' +
+    (tsCfg().esc && tsCfg().esc.on ? '<div class="small muted">⏰ Kalau yang kamu pilih belum merespons dalam ' + tsCfg().esc.menit + ' menit, pertanyaan otomatis diteruskan ke seluruh tim.</div>' : '') + '</div>';
 }
 function tsSaveFormText() { try { if (TSA.form) store('vt_tsform_' + S.user.username, JSON.stringify({ v: TSA.form.v, key: TSA.form.key })); } catch (e) { /* */ } }
 function tsVehicleFields(v, outs, withOutlet) {
@@ -1102,6 +1103,10 @@ function tsAdminDraw(el, a) {
     '<div class="two" style="margin-top:10px"><div><label>Tambah akun</label><select id="tmU"><option value="">Pilih akun…</option>' + users.filter(function (u) { return !team.some(function (t) { return t.username === u.username; }); }).map(function (u) { return '<option value="' + esc(u.username) + '">' + esc(u.nama + ' (' + roleName(u.role) + ')') + '</option>'; }).join('') + '</select></div>' +
     '<div><label>Nomor WhatsApp</label><input type="text" id="tmW" inputmode="tel" placeholder="08xxxxxxxxxx"></div></div><div style="margin-top:8px"><label>Peran</label><input type="text" id="tmP" value="Technical Support"></div>' +
     '<button class="btn sec block" id="tmAdd" style="margin-top:10px">' + ic('plus') + ' Tambah anggota</button></div>';
+  var esc0 = c.esc || { on: true, menit: 10 };
+  h += '<div class="card"><h2><span class="hic or">' + ic('clock') + '</span>Eskalasi otomatis</h2><div class="small muted" style="margin:-6px 0 10px">Teknisi bisa memilih anggota tim yang ditanya. Bila anggota itu belum menangani / membalas, pertanyaan diteruskan ke seluruh tim (notifikasi HP) satu kali. Berjalan saat ada yang membuka aplikasi; supaya jalan juga saat sepi, jalankan fungsi <b>aktifkanBalasOtomatis</b> sekali dari editor Apps Script.</div>' +
+    '<label class="check"><input type="checkbox" id="escOn"' + (esc0.on !== false ? ' checked' : '') + '> <span>Teruskan ke seluruh tim bila belum direspons dalam <select id="escMenit" class="stsel" style="display:inline-block;margin:0 4px">' + [5, 10, 15, 30, 60].map(function (n) { return '<option value="' + n + '"' + (+esc0.menit === n ? ' selected' : '') + '>' + n + '</option>'; }).join('') + '</select> menit</span></label>' +
+    '<button class="btn sec block" id="escSave" style="margin-top:10px">' + ic('check', 'sm') + ' Simpan eskalasi</button></div>';
   var prov = a.aiProvider || 'gemini', keys = a.aiKeys || {}, back = a.aiCadangan || '', MD = a.aiModels || {};
   var PV = a.aiProviders || [{ id: 'gemini', name: 'Gemini', model: 'gemini-3.8-flash' }, { id: 'claude', name: 'Claude', model: 'claude-sonnet-5-5' }];
   var pvName = function (id) { var x = PV.filter(function (p) { return p.id === id; })[0]; return x ? x.name : id; };
@@ -1154,6 +1159,7 @@ function tsAdminDraw(el, a) {
   };
   var saveTeam = function () { save('team', team, $('#tmSave')); };
   drawTeam();
+  $('#escSave').onclick = function () { save('esc', { on: $('#escOn').checked, menit: +$('#escMenit').value }, this); };
   $('#tmAdd').onclick = function () {
     var un = $('#tmU').value; if (!un) { toast('Pilih akun dulu.'); return; }
     var u = a.users.filter(function (x) { return x.username === un; })[0];
