@@ -428,3 +428,19 @@ body.hasapp main{padding-top:6px}
 .tbl.sp td{white-space:normal;vertical-align:top}
 .spd{font-weight:800;padding:2px 8px;border-radius:99px;white-space:nowrap}
 .spd.ok{background:var(--ok-bg);color:var(--ok)} .spd.warn{background:#fff1d6;color:#8a4800} .spd.bad{background:var(--bad-bg);color:var(--bad)}
+
+/* ===== v2.6: builder admin, tombol beranda ===== */
+.typepick.many{grid-template-columns:repeat(auto-fit,minmax(104px,1fr))}
+.brow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;border:1px solid var(--line);border-radius:12px;padding:10px;margin-bottom:8px;background:#fafbfe}
+.brow.off{opacity:.62}
+.brow .l{flex:1 1 170px;min-width:0}
+.brow select{width:auto;min-width:112px;flex:0 0 auto}
+.brow .sw{width:auto;min-width:46px;margin:0}
+.brow .rb{display:flex;gap:2px;margin-left:auto;align-items:center}
+.brow .rb .xbtn{font-size:13px;padding:4px 7px}
+.brow .rb .xbtn:disabled{opacity:.3}
+.brow .full{flex:1 1 100%}
+.brow .fl{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.brow .fl label{margin:0;font-size:12px;color:var(--muted)}
+.brow .fl .m{width:120px}
+.brow .fl .h{flex:1 1 100%}

@@ -37,6 +37,7 @@ function tsAppKey() { return 'vt_app_' + (S.user ? S.user.username : ''); }
 function tsInitApp() {
   if (!tsAccess()) { S.app = 'vtag'; if (String(S.tab).indexOf('ts:') === 0) S.tab = 'home'; return; }
   if (!S.app) S.app = store(tsAppKey()) === 'ts' ? 'ts' : 'vtag';
+  if (!window.vtagAvail || !vtagAvail()) S.app = 'ts';   // admin mematikan semua fitur VTAG untuk outlet ini
   if (S.app === 'ts' && String(S.tab).indexOf('ts:') !== 0) S.tab = tsHome();
   if (S.app === 'vtag' && String(S.tab).indexOf('ts:') === 0) S.tab = 'home';
 }
@@ -52,7 +53,7 @@ function tsSwitch(app) {
 function renderApsw() {
   var b = $('#appbar');
   if (!b) return;
-  if (!tsAccess()) { b.classList.add('hidden'); b.innerHTML = ''; document.body.classList.remove('hasapp'); return; }
+  if (!tsAccess() || (window.vtagAvail && !vtagAvail())) { b.classList.add('hidden'); b.innerHTML = ''; document.body.classList.remove('hasapp'); return; }
   b.classList.remove('hidden'); document.body.classList.add('hasapp');
   var hd = $('header.top'); if (hd && hd.offsetHeight) document.documentElement.style.setProperty('--hdr-h', (hd.offsetHeight - 1) + 'px');
   var n = TSA.list.filter(function (r) { return tsStaff() ? r.status === 'Baru' || (r.urgent && tsIsOpen(r.status)) : r.tuser === S.user.username && tsIsOpen(r.status); }).length;
