@@ -18,6 +18,7 @@ var TS_INFO = 'Gunakan Aplikasi VTAG warranty untuk Khusus Vinfast. Gunakan Apli
 /* ---------------- akses & status ---------------- */
 function tsAccess() { return !!(S.boot && S.boot.ts && S.boot.ts.access); }
 function inTs() { return S.app === 'ts'; }
+function tsReq() { return role() === 'mekanik' || role() === 'mekanik_sw'; }
 function tsStaff() { return TSA.boot ? !!TSA.boot.me.staff : !!(S.boot && S.boot.ts && S.boot.ts.staff); }
 function tsCfg() { return (TSA.boot && TSA.boot.cfg) || { brands: [], systems: [], urgent: {}, ai: {}, team: [], open: ['Baru', 'Analysis', 'Pending part'], final: ['Resolved', 'Not resolved', 'Dirujuk ke dealer'] }; }
 function tsIsOpen(st) { return tsCfg().open.indexOf(st) >= 0; }
@@ -161,8 +162,8 @@ function tsTabsDef() {
   } else {
     t.push({ k: 'ts:home', l: 'Beranda', i: 'home' });
     t.push({ k: 'ts:new', l: 'Minta bantuan', i: 'plus', cta: true });
-    t.push({ k: 'ts:data', l: role() === 'mekanik' ? 'Kasus' : 'Data', i: 'list', n: tsMineOpen().length });
-    if (role() === 'sm' || role() === 'foreman') t.push({ k: 'ts:dash', l: 'Dashboard', i: 'zap' });
+    t.push({ k: 'ts:data', l: tsReq() ? 'Kasus' : 'Data', i: 'list', n: tsMineOpen().length });
+    if (role() === 'sm' || role() === 'foreman' || role() === 'foreman_sw') t.push({ k: 'ts:dash', l: 'Dashboard', i: 'zap' });
   }
   return t;
 }
@@ -221,7 +222,7 @@ function tsRenderHome(m) {
   var outletOpen = TSA.list.filter(function (r) { return r.tuser !== u.username && tsIsOpen(r.status); });
   var h = '<div class="hero ts"><h1>Tech Support</h1><p>' + esc(String(u.nama).split(' ')[0]) + ' · ' + esc(roleName(u.role)) + ' · semua merek, di luar warranty ATPM</p><div class="acts">' +
     '<button class="btn white" data-go="ts:new">' + ic('plus') + ' Minta bantuan</button>' +
-    (role() !== 'mekanik' ? '<button class="btn sec" data-go="ts:dash" style="background:rgba(255,255,255,.16);color:#fff;border-color:rgba(255,255,255,.4)">' + ic('zap') + ' Dashboard</button>' : '') + '</div></div>';
+    (!tsReq() ? '<button class="btn sec" data-go="ts:dash" style="background:rgba(255,255,255,.16);color:#fff;border-color:rgba(255,255,255,.4)">' + ic('zap') + ' Dashboard</button>' : '') + '</div></div>';
   h += pushBanner();
   var team = tsCfg().team;
   if (team.length) h += '<div class="card"><h2><span class="hic or">' + ic('users') + '</span>Tim Technical Support</h2>' + team.map(function (t) {
@@ -950,8 +951,8 @@ function tsRenderData(m) {
   var f = TSA.filter, list = TSA.list;
   var brands = {}, outlets = {};
   list.forEach(function (r) { if (r.brand) brands[r.brand] = 1; if (r.outlet) outlets[r.outlet] = 1; });
-  var canExp = tsStaff() || role() === 'sm' || role() === 'foreman';
-  var h = '<div class="tshead"><div><h1>' + (role() === 'mekanik' && !tsStaff() ? 'Kasus' : 'Data Tech Support') + '</h1><div class="small muted">' + list.length + ' kasus</div></div>' + (canExp ? '<button class="btn sec sm" id="tExp">' + ic('download', 'sm') + ' Excel</button>' : '') + '</div>';
+  var canExp = tsStaff() || role() === 'sm' || role() === 'foreman' || role() === 'foreman_sw';
+  var h = '<div class="tshead"><div><h1>' + (tsReq() && !tsStaff() ? 'Kasus' : 'Data Tech Support') + '</h1><div class="small muted">' + list.length + ' kasus</div></div>' + (canExp ? '<button class="btn sec sm" id="tExp">' + ic('download', 'sm') + ' Excel</button>' : '') + '</div>';
   h += '<div class="search">' + ic('search') + '<input id="tq" type="search" placeholder="Cari nopol, merek, keluhan, teknisi, DTC…" value="' + esc(f.q) + '"></div>';
   var cnt = function (st) { return list.filter(function (r) { return r.status === st; }).length; };
   h += '<div class="chips">' + [['', 'Semua', list.length]].concat(TS_ST_ORDER.map(function (s) { return [s, s, cnt(s)]; })).filter(function (c) { return c[0] === '' || c[2]; })
