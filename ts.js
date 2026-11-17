@@ -117,7 +117,7 @@ function tsSyncNow() {
   if (tsSyncing || !TSA.boot) return Promise.resolve();
   tsSyncing = true;
   return api('tsSync', TSA.rev).then(function (r) {
-    if (r.same) return;
+    if (r.same) return false;
     TSA.rev = r.rev; TSA.list = r.list || []; TSA.events = r.events || [];
     if (r.cfg) TSA.boot.cfg = r.cfg;
     if (r.me) TSA.boot.me = r.me;
@@ -130,6 +130,7 @@ function tsSyncNow() {
       if (S.tab === 'ts:case' && TSA.caseId) tsRefreshCase();
       else if (!tsFormOpen() && !$('#ov')) renderView();
     }
+    return true;
   }).catch(function () { /* dicoba lagi */ }).finally(function () { tsSyncing = false; });
 }
 function tsNotifyNew(silent) {
@@ -758,7 +759,11 @@ function tsSendMsg(caseId, txt) {
   var lg = $('#tslog');
   if (lg && TSA.caseData) { var e0 = lg.querySelector('.muted.small'); if (e0 && !lg.querySelector('.lmsg,.lsys')) e0.remove(); lg.insertAdjacentHTML('beforeend', tsPendOne(p, tsPendSide(TSA.caseData))); tsScrollEnd(); }
   p.retry = function () {
-    api('tsMessage', caseId, txt).then(function (r) { p.state = 'ok'; p.logId = r.id; tsPendUpdate(p); tsRefreshCase(); tsSyncNow(); },
+    api('tsMessage', caseId, txt).then(function (r) {
+      p.state = 'ok'; p.logId = r.id; tsPendUpdate(p);
+      // satu kali muat ulang saja: lewat sinkron (yang juga memperbarui daftar), kalau tidak ada perubahan baru muat langsung
+      tsSyncNow().then(function (changed) { if (!changed && TSA.caseId === caseId) tsRefreshCase(); });
+    },
       function (e) { p.state = 'err'; p.retry = p.retry; tsPendUpdate(p); toast(errMsg(e)); });
   };
   p.retry();
