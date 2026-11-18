@@ -4,7 +4,7 @@
 'use strict';
 
 var CONFIG = {
-  VERSION: '2.6.3',
+  VERSION: '2.6.4',
   API_URL: 'https://script.google.com/macros/s/AKfycbyGcLEZZ2Xm0nYl2gq53Qng-KmOUYSqvCrlwtAfRrxROwIREyGL3JyG9CQPlT_9QBYq1Q/exec',
   POLL_MS: 20000,            // cek data baru tiap 20 detik
   CHUNK: 2359296,            // 9 x 256 KB per potongan upload
@@ -1204,7 +1204,8 @@ function renderCase(d) {
     '<div class="muted small" style="margin-top:3px">' + esc(c.CaseID) + ' · ' + esc(fmtDT(c.Timestamp)) + '</div></div><div style="text-align:right">' + pill(c.Status, { stl: d.stl }) + '<div style="margin-top:4px">' + afterPill(c.AfterStatus) + '</div></div></div>';
   if (c.DriveDeletedAt) h += '<div class="msg warn">' + ic('trash') + '<span>File Drive kasus ini sudah dihapus permanen oleh ' + esc(c.DriveDeletedBy) + ' (' + esc(fmtDT(c.DriveDeletedAt)) + '). Data di sheet tetap tersimpan.</span></div>';
   if (c.ValidationNote) h += '<div class="msg ' + (c.Status === T.REVISI ? 'err' : 'ok') + '">' + ic(c.Status === T.REVISI ? 'undo' : 'check') + '<span><b>Catatan foreman' + (c.ValidatedBy ? ' (' + esc(c.ValidatedBy) + ')' : '') + ':</b> ' + esc(c.ValidationNote) + '</span></div>';
-  if (c.VinfastAt) h += '<div class="msg info">' + ic('send') + '<span><b>Diajukan ke VinFast</b> oleh ' + esc(c.VinfastBy) + ' · ' + esc(fmtDT(c.VinfastAt)) + (c.VinfastRef ? ' · No. <b>' + esc(c.VinfastRef) + '</b>' : '') +
+  var woNo = c.WONo || (c.Status === T.SUBMITTED ? c.VinfastRef : ''), tkNo = (c.Status === T.SUBMITTED && !c.WONo) ? '' : (c.VinfastRef || '');
+  if (c.VinfastAt) h += '<div class="msg info">' + ic('send') + '<span><b>Diajukan ke VinFast</b> oleh ' + esc(c.VinfastBy) + ' · ' + esc(fmtDT(c.VinfastAt)) + (woNo ? ' · No. WO <b>' + esc(woNo) + '</b>' : '') + (tkNo ? ' · Ticket VTAG <b>' + esc(tkNo) + '</b>' : '') +
     (c.ApprovedAt ? '<br><b>Approved VinFast</b> ditandai ' + esc(c.ApprovedBy) + ' · ' + esc(fmtDT(c.ApprovedAt)) : (c.Status === T.SUBMITTED ? '<br>Menunggu approval VinFast.' : '')) + '</span></div>';
   if (F.viewOnly) h += '<div class="msg info">' + ic('eye') + '<span>Akses Partman: lihat saja. Kode part ada di bagian Dokumentasi After Penggantian.</span></div>';
   if (c.Status === T.DONE && c.AfterStatus === A.WAIT && F.canAfter) h += '<div class="msg info">' + ic('box') + '<span>Kasus sudah divalidasi. Silakan upload <b>Dokumentasi After Penggantian</b>.</span></div>';
@@ -1238,14 +1239,14 @@ function renderCase(d) {
   if (F.canValidate) {
     h += '<div class="sec-t">' + ic('shield') + 'Validasi foreman · langkah 1</div>' +
       '<div class="small muted" style="margin:-4px 0 8px">Cek data & lampiran. Jika benar, ajukan ke sistem VinFast lalu tandai di sini.</div>' +
-      '<label>No. VTAG / tiket VinFast <span class="opt">(opsional)</span></label><input type="text" id="vref" placeholder="Mis. VTAG-2026-001" style="margin-bottom:10px">' +
+      '<label>No. WO <span class="opt">(opsional)</span></label><input type="text" id="vref" placeholder="Mis. WO-2026-001" style="margin-bottom:10px">' +
       '<textarea id="vnote" placeholder="Catatan (wajib jika minta revisi). Mis. foto ODO buram…"></textarea>' +
       '<div id="verr" class="msg err hidden"></div><div class="stack" style="margin-top:10px"><button class="btn block" id="bOk">' + ic('send') + ' Data benar & sudah diajukan ke VinFast</button><button class="btn bad block" id="bRev">' + ic('undo') + ' Minta revisi ke mekanik</button></div>';
   }
   if (F.canApprove) {
     h += '<div class="sec-t">' + ic('shield') + 'Approval VinFast · langkah 2</div>' +
       '<div class="small muted" style="margin:-4px 0 8px">Tandai setelah kasus di-approve di sistem VinFast. Status berubah jadi <b>Sudah Terinput VTAG</b> & mekanik diminta upload dokumentasi after.</div>' +
-      '<label>No. VTAG / tiket VinFast <span class="opt">(opsional)</span></label><input type="text" id="vref" value="' + esc(c.VinfastRef || '') + '" style="margin-bottom:10px">' +
+      '<label>No. Ticket VTAG <span class="opt">(opsional)</span></label><input type="text" id="vref" value="' + esc(tkNo) + '" placeholder="Mis. VTAG-2026-001" style="margin-bottom:10px">' +
       '<textarea id="vnote" placeholder="Catatan (wajib jika ditolak VinFast)"></textarea>' +
       '<div id="verr" class="msg err hidden"></div><div class="stack" style="margin-top:10px"><button class="btn ok block" id="bOk">' + ic('check') + ' Sudah di-approve VinFast → Sudah Terinput VTAG</button><button class="btn bad block" id="bRev">' + ic('undo') + ' Ditolak VinFast → kembalikan ke mekanik</button></div>';
   }
