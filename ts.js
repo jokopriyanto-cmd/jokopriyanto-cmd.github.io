@@ -1107,6 +1107,7 @@ function tsAdminDraw(el, a) {
   h += '<div class="card"><h2><span class="hic or">' + ic('clock') + '</span>Eskalasi otomatis</h2><div class="small muted" style="margin:-6px 0 10px">Teknisi bisa memilih anggota tim yang ditanya. Bila anggota itu belum menangani / membalas, pertanyaan diteruskan ke seluruh tim (notifikasi HP) satu kali. Berjalan saat ada yang membuka aplikasi; supaya jalan juga saat sepi, jalankan fungsi <b>aktifkanBalasOtomatis</b> sekali dari editor Apps Script.</div>' +
     '<label class="check"><input type="checkbox" id="escOn"' + (esc0.on !== false ? ' checked' : '') + '> <span>Teruskan ke seluruh tim bila belum direspons dalam <select id="escMenit" class="stsel" style="display:inline-block;margin:0 4px">' + [5, 10, 15, 30, 60].map(function (n) { return '<option value="' + n + '"' + (+esc0.menit === n ? ' selected' : '') + '>' + n + '</option>'; }).join('') + '</select> menit</span></label>' +
     '<button class="btn sec block" id="escSave" style="margin-top:10px">' + ic('check', 'sm') + ' Simpan eskalasi</button></div>';
+  h += '<div class="card"><h2><span class="hic or">' + ic('zap') + '</span>Dashboard publik</h2><div class="small muted" style="margin:-6px 0 10px">Tampilan dashboard Tech Support yang sama persis dengan di aplikasi, hanya-baca, dan datanya langsung ikut berubah (otomatis tiap 1 menit). Bisa dibuka tanpa login aplikasi lewat link berkunci, atau disambungkan ke dashboard lama.</div><div id="dshBox" class="muted small">Memuat…</div></div>';
   var prov = a.aiProvider || 'gemini', keys = a.aiKeys || {}, back = a.aiCadangan || '', MD = a.aiModels || {};
   var PV = a.aiProviders || [{ id: 'gemini', name: 'Gemini', model: 'gemini-3.8-flash' }, { id: 'claude', name: 'Claude', model: 'claude-sonnet-5-5' }];
   var pvName = function (id) { var x = PV.filter(function (p) { return p.id === id; })[0]; return x ? x.name : id; };
@@ -1160,6 +1161,28 @@ function tsAdminDraw(el, a) {
   var saveTeam = function () { save('team', team, $('#tmSave')); };
   drawTeam();
   $('#escSave').onclick = function () { save('esc', { on: $('#escOn').checked, menit: +$('#escMenit').value }, this); };
+  var drawDash = function (d) {
+    var box = $('#dshBox'); if (!box) return;
+    if (!d.on) {
+      box.innerHTML = '<div class="msg info">' + ic('eye') + '<span>Dashboard publik belum aktif. Tidak ada yang bisa membukanya sebelum dibuat kuncinya.</span></div><button class="btn block" id="dshNew">' + ic('check', 'sm') + ' Aktifkan &amp; buat link</button>';
+      $('#dshNew').onclick = function () { var b = this; b.disabled = true; api('tsDashKey', 'new').then(drawDash, function (e) { toast(errMsg(e), 6000); b.disabled = false; }); };
+      return;
+    }
+    var snip = "function doGet() {\n  return HtmlService.createHtmlOutput('<iframe src=\"" + d.url + "\" style=\"position:fixed;inset:0;width:100%;height:100%;border:0\"></iframe>')\n    .setTitle('Dashboard Technical Issue')\n    .addMetaTag('viewport', 'width=device-width,initial-scale=1')\n    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);\n}";
+    box.innerHTML = '<label>Link dashboard (bagikan ke internal)</label><input type="text" id="dshUrl" readonly value="' + esc(d.url) + '" style="margin-bottom:8px"><div class="row" style="gap:8px;flex-wrap:wrap"><button class="btn sec sm" id="dshCp">' + ic('clip', 'sm') + ' Salin link</button><a class="btn sec sm" target="_blank" rel="noopener" href="' + esc(d.url) + '">' + ic('eye', 'sm') + ' Buka</a></div>' +
+      '<label style="margin-top:14px">Kode untuk dashboard lama (ganti fungsi <code>doGet</code>-nya)</label><textarea id="dshCode" readonly rows="7" style="font:12px/1.4 ui-monospace,Menlo,Consolas,monospace;margin-bottom:8px">' + esc(snip) + '</textarea>' +
+      '<div class="small muted" style="margin-bottom:8px">Tempel di project Apps Script dashboard lama, lalu Deploy › Kelola deployment › Edit › Versi baru. Alamat lama tidak berubah dan tetap hanya untuk akun otoklix.com.</div>' +
+      '<div class="row" style="gap:8px;flex-wrap:wrap"><button class="btn sec sm" id="dshCp2">' + ic('clip', 'sm') + ' Salin kode</button><button class="btn sec sm" id="dshRe">' + ic('undo', 'sm') + ' Buat kunci baru</button><button class="btn sec sm" id="dshOff">' + ic('x', 'sm') + ' Matikan</button></div>';
+    $('#dshCp').onclick = function () { copyText(d.url, document.createElement('textarea')); };
+    $('#dshCp2').onclick = function () { copyText(snip, document.createElement('textarea')); };
+    $('#dshRe').onclick = function () {
+      confirmBox({ title: 'Buat kunci baru?', body: 'Link lama langsung mati. Kode di dashboard lama harus diganti dengan yang baru.', ok: 'Buat kunci baru', danger: true }).then(function (y) { if (y) api('tsDashKey', 'new').then(drawDash, function (e) { toast(errMsg(e), 6000); }); });
+    };
+    $('#dshOff').onclick = function () {
+      confirmBox({ title: 'Matikan dashboard publik?', body: 'Link dan dashboard lama berhenti menampilkan data sampai diaktifkan lagi.', ok: 'Matikan', danger: true }).then(function (y) { if (y) api('tsDashKey', 'off').then(drawDash, function (e) { toast(errMsg(e), 6000); }); });
+    };
+  };
+  apiRetry('tsDashKey', 'get').then(drawDash, function (e) { var b = $('#dshBox'); if (b) b.innerHTML = '<div class="msg err">' + ic('warn') + '<span>' + esc(errMsg(e)) + '</span></div>'; });
   $('#tmAdd').onclick = function () {
     var un = $('#tmU').value; if (!un) { toast('Pilih akun dulu.'); return; }
     var u = a.users.filter(function (x) { return x.username === un; })[0];
