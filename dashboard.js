@@ -11,7 +11,9 @@ var IC = {
  "car": "<path d=\"M5 17H3v-4l2-6a2 2 0 0 1 2-1h10a2 2 0 0 1 2 1l2 6v4h-2\"/><path d=\"M3 13h18\"/><circle cx=\"7.5\" cy=\"17\" r=\"1.8\"/><circle cx=\"16.5\" cy=\"17\" r=\"1.8\"/>",
  "tool": "<path d=\"M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z\"/>",
  "pin": "<path d=\"M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z\"/><circle cx=\"12\" cy=\"10\" r=\"3\"/>",
- "warn": "<path d=\"M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z\"/><line x1=\"12\" y1=\"9\" x2=\"12\" y2=\"13\"/><line x1=\"12\" y1=\"17\" x2=\"12.01\" y2=\"17\"/>"
+ "warn": "<path d=\"M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z\"/><line x1=\"12\" y1=\"9\" x2=\"12\" y2=\"13\"/><line x1=\"12\" y1=\"17\" x2=\"12.01\" y2=\"17\"/>",
+ "printer": "<polyline points=\"6 9 6 2 18 2 18 9\"/><path d=\"M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2\"/><rect x=\"6\" y=\"14\" width=\"12\" height=\"8\"/>",
+ "download": "<path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"/><polyline points=\"7 10 12 15 17 10\"/><line x1=\"12\" y1=\"15\" x2=\"12\" y2=\"3\"/>"
 };
 function $(s, r) { return (r || document).querySelector(s); }
 function ic(n, c) { return '<svg class="i ' + (c || '') + '" viewBox="0 0 24 24" aria-hidden="true">' + (IC[n] || '') + '</svg>'; }
@@ -70,13 +72,39 @@ function tsRenderDash(m) {
   h += '<div class="card"><h2><span class="hic">' + ic('pin') + '</span>Per outlet</h2>' + tsBars(co, '#0f8a5f') + '</div>';
   h += '<div class="card"><h2><span class="hic">' + ic('warn') + '</span>Kode DTC terbanyak</h2>' + tsBars(cd, '#c2271b', 10) + '</div></div></div>';
 
-  h += '<div class="card"><h2><span class="hic">' + ic('clock') + '</span>Recent Issues</h2><div class="tblwrap"><table class="tbl"><thead><tr><th>Tanggal</th><th>No.</th><th>Kendaraan</th><th>Nopol</th><th>Outlet</th><th>Issue</th><th>Status</th></tr></thead><tbody>' +
+  h += '<div class="card"><h2><span class="hic">' + ic('clock') + '</span>Recent Issues</h2><div class="tblwrap"><table class="tbl"><thead><tr><th>Tanggal</th><th>No.</th><th>Kendaraan</th><th>Nopol</th><th>Outlet</th><th>Issue</th><th>Status</th><th>PDF</th></tr></thead><tbody>' +
     (list.length ? list.slice(0, 25).map(function (r) {
-      return '<tr><td>' + esc(fmtDate(r.ts)) + '</td><td class="mono">' + esc(r.no || r.id) + '</td><td>' + esc(tsVeh(r)) + '</td><td>' + esc(r.nopol) + '</td><td>' + esc(r.outlet) + '</td><td style="white-space:normal;min-width:180px">' + esc(String(r.keluhan || '').slice(0, 90)) + '</td><td>' + tsPill(r.status) + '</td></tr>';
-    }).join('') : '<tr><td colspan="7" class="muted">Belum ada data.</td></tr>') + '</tbody></table></div></div>';
+      return '<tr><td>' + esc(fmtDate(r.ts)) + '</td><td class="mono">' + esc(r.no || r.id) + '</td><td>' + esc(tsVeh(r)) + '</td><td>' + esc(r.nopol) + '</td><td>' + esc(r.outlet) + '</td><td style="white-space:normal;min-width:180px">' + esc(String(r.keluhan || '').slice(0, 90)) + '</td><td>' + tsPill(r.status) + '</td><td>' + pdfBtn(r) + '</td></tr>';
+    }).join('') : '<tr><td colspan="8" class="muted">Belum ada data.</td></tr>') + '</tbody></table></div></div>';
   m.innerHTML = h;
+  Array.prototype.forEach.call(m.querySelectorAll('[data-pdf]'), function (b) { b.onclick = function () { dashPdf(b.dataset.pdf, b); }; });
   $('#dr').onchange = function () { D.range = this.value; tsRenderDash(m); };
   $('#db').onchange = function () { D.brand = this.value; tsRenderDash(m); };
+}
+
+/* ---------------- PDF report ---------------- */
+var PDFS = {};   // id -> { upd, name, url(blob) } : dipakai ulang selama kasus tidak berubah
+function pdfBtn(r) {
+  var c = PDFS[r.id]; var ok = c && c.upd === (r.upd || '');
+  return '<button class="btn sec sm" type="button" data-pdf="' + esc(r.id) + '" title="' + (ok ? 'Unduh PDF report' : 'Buat & unduh PDF report') + '">' + ic(ok ? 'download' : 'printer', 'sm') + '</button>';
+}
+function saveUrl(name, url) { var a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); }
+function b64Blob(b64) { var bin = atob(b64), n = bin.length, u = new Uint8Array(n); for (var i = 0; i < n; i++) u[i] = bin.charCodeAt(i); return new Blob([u], { type: 'application/pdf' }); }
+function dashPdf(id, btn) {
+  var row = DASH.list.filter(function (r) { return r.id === id; })[0], c = PDFS[id];
+  if (c && row && c.upd === (row.upd || '')) { saveUrl(c.name, c.url); setInfo('Mengunduh ' + c.name); return; }
+  btn.disabled = true; btn.innerHTML = '<span class="spin" style="width:16px;height:16px;border-width:3px;display:inline-block;vertical-align:-3px"></span>';
+  setInfo('Menyiapkan PDF report… biasanya 10–30 detik.');
+  fetch(API + (API.indexOf('?') < 0 ? '?' : '&') + 'page=dashpdf&key=' + encodeURIComponent(KEY) + '&id=' + encodeURIComponent(id), { cache: 'no-store' })
+    .then(function (r) { return r.json(); })
+    .then(function (j) {
+      if (!j || !j.ok) throw new Error((j && j.error) || 'Gagal membuat PDF.');
+      var url = URL.createObjectURL(b64Blob(j.b64));
+      PDFS[id] = { upd: row ? (row.upd || '') : '', name: j.name, url: url };
+      saveUrl(j.name, url); setInfo('PDF siap: ' + j.name);
+    })
+    .catch(function (e) { setInfo('PDF gagal: ' + (e.message || e), true); })
+    .then(function () { var cur = document.querySelector('[data-pdf="' + id + '"]'); if (!cur) return; cur.outerHTML = pdfBtn(row || { id: id }); var nb = document.querySelector('[data-pdf="' + id + '"]'); if (nb) nb.onclick = function () { dashPdf(id, nb); }; });
 }
 
 /* ---------------- pengambilan data realtime ---------------- */
