@@ -719,10 +719,33 @@ function tsProgress(st) {
 function tsIsImg(f) { return /^image\//.test(f.mime || '') || /\.(jpe?g|png|webp|heic|gif)$/i.test(f.name || ''); }
 function tsFileTile(f) {
   var th = TSA.thumbs[f.id];
-  return '<a class="ftile" href="' + esc(f.url) + '" target="_blank" rel="noopener" data-fid="' + esc(tsIsImg(f) ? f.id : '') + '">' +
+  return '<a class="ftile" href="' + esc(f.url) + '" target="_blank" rel="noopener" data-open="' + esc(f.id) + '" data-fid="' + esc(tsIsImg(f) ? f.id : '') + '">' +
     (th ? '<img src="' + esc(th) + '" alt="">' : '<span class="fic">' + ic(tsIsImg(f) ? 'camera' : /video/.test(f.mime || '') || /\.(mp4|mov|webm|3gp)$/i.test(f.name) ? 'video' : 'file') + '</span>') +
     '<span class="fl">' + esc(f.label) + '</span></a>';
 }
+/* Buka lampiran lewat aplikasi (bukan link Drive) supaya akun Google lain tidak diminta "minta akses". */
+function tsOpenFile(caseId, fid, href) {
+  var spin = '<div style="text-align:center;padding:26px 0"><div class="spin" style="margin:0 auto"></div><div class="muted small" style="margin-top:10px">Membuka file…</div></div>';
+  modal(spin, ''); modalLock = true;
+  api('tsFileGet', caseId, fid).then(function (r) {
+    modalLock = false;
+    if (r.big) { closeModal(); window.open(r.url || href, '_blank', 'noopener'); return; }
+    var url = 'data:' + r.mime + ';base64,' + r.b64, view = '';
+    if (/^image\//.test(r.mime)) view = '<img src="' + url + '" alt="" style="display:block;max-width:100%;max-height:70vh;margin:0 auto;border-radius:10px">';
+    else if (/^video\//.test(r.mime)) view = '<video src="' + url + '" controls playsinline style="display:block;max-width:100%;max-height:70vh;margin:0 auto;border-radius:10px"></video>';
+    else { closeModal(); dlFile(r.name, r.mime, r.b64); return; }
+    modal('<div style="word-break:break-word;font-weight:700;margin-bottom:10px">' + esc(r.name) + '</div>' + view +
+      '<div class="stack" style="margin-top:14px"><button class="btn or block" id="fvDl">' + ic('download') + ' Download</button><button class="btn sec block" id="fvX">Tutup</button></div>', '');
+    $('#fvDl').onclick = function () { dlFile(r.name, r.mime, r.b64); };
+    $('#fvX').onclick = closeModal;
+  }, function (e) { modalLock = false; closeModal(); toast(errMsg(e), 6000); });
+}
+document.addEventListener('click', function (e) {
+  var a = e.target && e.target.closest ? e.target.closest('.ftile[data-open]') : null;
+  if (!a || !TSA.caseId) return;
+  e.preventDefault();
+  tsOpenFile(TSA.caseId, a.getAttribute('data-open'), a.getAttribute('href'));
+});
 function tsLoadThumbs(id, files) {
   var need = files.filter(function (f) { return tsIsImg(f) && !TSA.thumbs[f.id] && TSA.thumbs[f.id] !== ''; }).slice(0, 12);
   need.reduce(function (p, f) {
