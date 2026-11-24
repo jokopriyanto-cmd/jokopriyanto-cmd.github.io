@@ -4,7 +4,7 @@
 'use strict';
 
 var CONFIG = {
-  VERSION: '2.7.4',
+  VERSION: '2.7.5',
   API_URL: 'https://script.google.com/macros/s/AKfycbyGcLEZZ2Xm0nYl2gq53Qng-KmOUYSqvCrlwtAfRrxROwIREyGL3JyG9CQPlT_9QBYq1Q/exec',
   POLL_MS: 20000,            // cek data baru tiap 20 detik
   CHUNK: 2359296,            // 9 x 256 KB per potongan upload
@@ -536,6 +536,8 @@ function init() {
   // Masuk otomatis dari Otoklix Depot: token sesi dikirim lewat #sso=... (tidak ikut terkirim ke server).
   var sm = location.hash.match(/[#&]sso=([A-Za-z0-9]{4,128})/);
   if (/[#&]go=new(&|$)/.test(location.hash)) S.goNew = true;   // dari Otoklix Depot: langsung buka "Input baru"
+  var pm = location.hash.match(/[#&]pf=([A-Za-z0-9_-]+)/);   // data kendaraan dari Otoklix Depot (vin, nopol, model, odo, tgl, outlet)
+  if (pm) { try { S.prefill = JSON.parse(decodeURIComponent(escape(atob(pm[1].replace(/-/g, '+').replace(/_/g, '/'))))); } catch (e) { S.prefill = null; } }
   if (sm) {
     if (sm[1] === 'none') { store('vt_token', null); sstore('vt_token', null); store('vt_boot', null); }   // akun Depot belum terhubung: jangan pakai sesi lama
     else { if (store('vt_token') !== sm[1]) store('vt_boot', null); store('vt_token', sm[1]); sstore('vt_token', null); }
@@ -1403,13 +1405,30 @@ function draftHasContent(d) {
     (isCustomType(v.caseType) && Object.keys(v.cdata || {}).some(function (k) { return String(v.cdata[k] || '').trim(); })));
 }
 
+function applyPrefill(d, pf) {
+  var v = d.v, up = function (x) { return String(x || '').toUpperCase().replace(/\s+/g, ''); };
+  if (pf.vin) v.vin = up(pf.vin).replace(/[^A-Z0-9]/g, '').slice(0, 17);
+  if (pf.nopol) v.nopol = up(pf.nopol);
+  if (pf.model) v.model = String(pf.model).replace(/\s+/g, '');
+  if (pf.odo) v.odo = String(pf.odo).replace(/[^0-9]/g, '');
+  if (/^\d{4}-\d{2}-\d{2}$/.test(pf.date || '')) v.failureDate = pf.date;
+  if (pf.outlet && S.user.outlet === '*') {
+    var key = String(pf.outlet).toLowerCase().replace(/^otoklix\s*/, '').trim();
+    var hit = vtagOutlets().filter(function (o) { var l = String(o).toLowerCase(); return l === String(pf.outlet).toLowerCase() || (key && l.indexOf(key) >= 0); })[0];
+    if (hit) v.outlet = hit;
+  }
+}
 function openNewForm() {
   var id = 'new:' + S.user.username;
   return Drafts.get(id).then(function (d) {
     if (d && d.state === 'sending') { S.form = d; return; }
+    var pf = S.prefill; S.prefill = null;
+    if (pf && d && draftHasContent(d) && String(d.v.nopol || '').toUpperCase().replace(/\s/g, '') === String(pf.nopol || '').toUpperCase().replace(/\s/g, '')) pf = null;   // draft unit yang sama: lanjutkan saja
+    else if (pf) d = null;   // unit baru dari Depot: mulai form baru
     S.form = d || newDraft(id, 'case');
     S.form.restored = !!(d && draftHasContent(d));
     applyPreset(S.form);
+    if (pf) applyPrefill(S.form, pf);
   });
 }
 function setCampaign(F, id) { F.chosen = true; F.chooseOnly = ''; F.v.caseType = 'Campaign'; F.v.campaignId = id; F.v.cdata = F.v.cdata || {}; }
